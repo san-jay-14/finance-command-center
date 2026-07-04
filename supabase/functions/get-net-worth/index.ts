@@ -3,7 +3,20 @@
 // classes yet.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-Deno.serve(async (_req: Request) => {
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function json(body: unknown, status = 200): Response {
+  return Response.json(body, { status, headers: corsHeaders });
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
@@ -14,11 +27,11 @@ Deno.serve(async (_req: Request) => {
     .eq("asset_class", "stock");
 
   if (assetsError) {
-    return Response.json({ error: assetsError.message }, { status: 500 });
+    return json({ error: assetsError.message }, 500);
   }
 
   if (!assets || assets.length === 0) {
-    return Response.json({ total_value: 0, holdings: [] });
+    return json({ total_value: 0, holdings: [] });
   }
 
   const assetIds = assets.map((a) => a.id);
@@ -30,10 +43,10 @@ Deno.serve(async (_req: Request) => {
   ]);
 
   if (lotsResult.error) {
-    return Response.json({ error: lotsResult.error.message }, { status: 500 });
+    return json({ error: lotsResult.error.message }, 500);
   }
   if (pricesResult.error) {
-    return Response.json({ error: pricesResult.error.message }, { status: 500 });
+    return json({ error: pricesResult.error.message }, 500);
   }
 
   // Sum lots per asset — schema allows multiple lots per asset even though the
@@ -75,5 +88,5 @@ Deno.serve(async (_req: Request) => {
     };
   });
 
-  return Response.json({ total_value: totalValue, holdings });
+  return json({ total_value: totalValue, holdings });
 });

@@ -1,22 +1,67 @@
+import { useState } from 'react'
+import { Canvas } from './components/Canvas'
 import { VoiceInput } from './components/VoiceInput'
+import { useLivePrices } from './hooks/useLivePrices'
+import { sendMessage } from './lib/api'
+import type { RenderSpec } from './lib/types'
 
-// Sidebar-free, single-page layout per PROJECT_BRIEF.md section 1.
-// The center canvas will host generative UI components (section 6) once the
-// intent router and component registry exist — for now it's an empty shell.
+const USER_ID = import.meta.env.VITE_USER_ID
+
+type ChatEntry = { role: 'user' | 'assistant'; text: string }
+
+// Sidebar-free, single-page layout per PROJECT_BRIEF.md section 1. The
+// canvas renders whatever render_ui spec Claude's intent router returns,
+// via the component registry (section 6) — no fixed pages/routing.
 function App() {
+  const [canvasSpec, setCanvasSpec] = useState<RenderSpec | null>(null)
+  const [chatLog, setChatLog] = useState<ChatEntry[]>([])
+  const [pending, setPending] = useState(false)
+  const livePrices = useLivePrices()
+
+  async function handleSend(message: string) {
+    setChatLog((log) => [...log, { role: 'user', text: message }])
+    setPending(true)
+    try {
+      const response = await sendMessage(message, USER_ID)
+      if (response.tool === 'render_ui') {
+        setCanvasSpec({ component: response.component, data: response.data })
+        setChatLog((log) => [...log, { role: 'assistant', text: `Showing ${response.component.replace(/_/g, ' ')}.` }])
+      } else {
+        setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
+      }
+    } catch (err) {
+      setChatLog((log) => [...log, { role: 'assistant', text: `Something went wrong: ${(err as Error).message}` }])
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-neutral-50">
       <header className="border-b border-neutral-200 px-6 py-4">
         <h1 className="text-lg font-semibold text-neutral-900">Finance Command Center</h1>
       </header>
 
-      <main className="flex flex-1 items-center justify-center p-6">
-        <div id="canvas" className="h-full w-full max-w-4xl rounded-xl border border-dashed border-neutral-300" />
+      <main className="flex flex-1 flex-col gap-4 p-6">
+        {chatLog.length > 0 && (
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-4 text-sm">
+            {chatLog.map((entry, i) => (
+              <div key={i} className={entry.role === 'user' ? 'text-neutral-900' : 'text-neutral-600'}>
+                <span className="font-medium">{entry.role === 'user' ? 'You: ' : 'Assistant: '}</span>
+                {entry.text}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div id="canvas" className="mx-auto w-full max-w-4xl flex-1 rounded-xl border border-dashed border-neutral-300 bg-white">
+          <Canvas spec={canvasSpec} livePrices={livePrices} />
+        </div>
       </main>
 
       <footer className="px-6 py-6">
         <div className="mx-auto max-w-2xl">
-          <VoiceInput />
+          <VoiceInput onSubmit={handleSend} pending={pending} />
         </div>
       </footer>
     </div>

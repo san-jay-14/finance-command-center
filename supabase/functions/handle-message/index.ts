@@ -76,26 +76,38 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+function json(body: unknown, status = 200): Response {
+  return Response.json(body, { status, headers: corsHeaders });
+}
+
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
   if (req.method !== "POST") {
-    return Response.json({ error: "Use POST" }, { status: 405 });
+    return json({ error: "Use POST" }, 405);
   }
 
   let body: { message?: string; user_id?: string };
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    return json({ error: "Invalid JSON body" }, 400);
   }
 
   const { message, user_id } = body;
   if (!message || !user_id) {
-    return Response.json({ error: "message and user_id are required" }, { status: 400 });
+    return json({ error: "message and user_id are required" }, 400);
   }
 
   const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!anthropicApiKey) {
-    return Response.json({ error: "ANTHROPIC_API_KEY is not configured as a project secret" }, { status: 500 });
+    return json({ error: "ANTHROPIC_API_KEY is not configured as a project secret" }, 500);
   }
 
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -112,7 +124,7 @@ Deno.serve(async (req: Request) => {
     .limit(1);
 
   if (pendingError) {
-    return Response.json({ error: pendingError.message }, { status: 500 });
+    return json({ error: pendingError.message }, 500);
   }
 
   const pending = pendingRows?.[0] ?? null;
@@ -139,7 +151,7 @@ Deno.serve(async (req: Request) => {
 
   if (!toolUse) {
     const textBlock = response.content.find((b) => b.type === "text");
-    return Response.json({
+    return json({
       tool: null,
       message: textBlock && "text" in textBlock ? textBlock.text : "Claude did not call a tool.",
     });
@@ -166,15 +178,15 @@ Deno.serve(async (req: Request) => {
         })
         .select()
         .single();
-      if (error) return Response.json({ error: error.message }, { status: 500 });
-      return Response.json({
+      if (error) return json({ error: error.message }, 500);
+      return json({
         tool: "log_transaction",
         message: `Logged: ${input.action} ${input.quantity} (${input.asset_class}), amount ~${input.amount ?? 0}.`,
         transaction: data,
       });
     }
     case "render_ui": {
-      return Response.json({ tool: "render_ui", component: input.component, data: input.data });
+      return json({ tool: "render_ui", component: input.component, data: input.data });
     }
     case "ask_clarification": {
       const { data, error } = await supabase
@@ -187,10 +199,10 @@ Deno.serve(async (req: Request) => {
         })
         .select()
         .single();
-      if (error) return Response.json({ error: error.message }, { status: 500 });
-      return Response.json({ tool: "ask_clarification", message: input.question, pending_intent: data });
+      if (error) return json({ error: error.message }, 500);
+      return json({ tool: "ask_clarification", message: input.question, pending_intent: data });
     }
     default:
-      return Response.json({ error: `Unknown tool: ${toolUse.name}` }, { status: 500 });
+      return json({ error: `Unknown tool: ${toolUse.name}` }, 500);
   }
 });

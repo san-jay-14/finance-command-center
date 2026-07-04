@@ -1,0 +1,48 @@
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+
+async function callFunction<T>(name: string, body?: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      apikey: SUPABASE_ANON_KEY,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) {
+    const detail = await res.text()
+    throw new Error(`${name} failed (${res.status}): ${detail}`)
+  }
+  return res.json()
+}
+
+export type NetWorthHolding = {
+  symbol: string
+  quantity: number
+  current_price: number | null
+  current_value: number | null
+  invested_value: number
+  unrealized_pnl: number | null
+  price_as_of: string | null
+}
+
+export type NetWorthResponse = {
+  total_value: number
+  holdings: NetWorthHolding[]
+}
+
+export function fetchNetWorth(): Promise<NetWorthResponse> {
+  return callFunction<NetWorthResponse>('get-net-worth')
+}
+
+export type HandleMessageResponse =
+  | { tool: 'render_ui'; component: string; data: Record<string, unknown> }
+  | { tool: 'log_transaction'; message: string; transaction: unknown }
+  | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
+  | { tool: null; message: string }
+
+export function sendMessage(message: string, userId: string): Promise<HandleMessageResponse> {
+  return callFunction<HandleMessageResponse>('handle-message', { message, user_id: userId })
+}
