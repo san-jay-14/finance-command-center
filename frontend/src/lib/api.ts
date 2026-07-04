@@ -19,17 +19,23 @@ async function callFunction<T>(name: string, body?: Record<string, unknown>): Pr
 }
 
 export type NetWorthHolding = {
-  symbol: string
+  asset_id: string
+  symbol: string | null
+  name: string
+  asset_class: 'stock' | 'mutual_fund' | 'gold' | 'real_estate' | 'other'
   quantity: number
   current_price: number | null
   current_value: number | null
   invested_value: number
   unrealized_pnl: number | null
+  if_sold_today_value: number | null
+  adjustment_note: string
   price_as_of: string | null
 }
 
 export type NetWorthResponse = {
   total_value: number
+  by_asset_class: Record<string, number>
   holdings: NetWorthHolding[]
 }
 
@@ -40,6 +46,7 @@ export function fetchNetWorth(): Promise<NetWorthResponse> {
 export type HandleMessageResponse =
   | { tool: 'render_ui'; component: string; data: Record<string, unknown> }
   | { tool: 'log_transaction'; message: string; transaction: unknown }
+  | { tool: 'update_asset_value'; message: string }
   | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
   | { tool: null; message: string }
 

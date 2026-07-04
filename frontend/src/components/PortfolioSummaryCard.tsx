@@ -11,14 +11,14 @@ export function PortfolioSummaryCard({ livePrices }: VizProps) {
 
   useEffect(() => {
     fetchNetWorth()
-      .then((res) => setHoldings(res.holdings))
+      .then((res) => setHoldings(res.holdings.filter((h) => h.asset_class === 'stock')))
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
 
   const enriched = useMemo(() => {
     if (!holdings) return []
     return holdings.map((h) => {
-      const live = livePrices[h.symbol]
+      const live = h.symbol ? livePrices[h.symbol] : undefined
       const currentPrice = live?.ltp ?? h.current_price
       const currentValue = currentPrice != null ? h.quantity * currentPrice : h.current_value
       const unrealizedPnl = currentValue != null ? currentValue - h.invested_value : h.unrealized_pnl

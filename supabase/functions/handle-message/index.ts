@@ -1,13 +1,17 @@
-// Intent router (build-order step 4): text input only, mutate/query intents,
-// no guardrails yet. log_transaction logs directly — no broker execution,
-// no tax/affordability checks, no confirm-before-execute flow. Those are
-// later, explicitly deferred steps.
-import { createClient } from "npm:@supabase/supabase-js@2";
+// Intent router (build-order step 4, extended in step 6 for non-stock asset
+// classes). Text input only, no guardrails yet. log_transaction logs
+// directly — no broker execution, no tax/affordability checks, no
+// confirm-before-execute flow. Those are later, explicitly deferred steps.
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { corsHeaders, json } from "../_shared/cors.ts";
+import { createAdminClient } from "../_shared/supabaseAdmin.ts";
+
+type AdminClient = ReturnType<typeof createAdminClient>;
 
 const SYSTEM_PROMPT = `You are the intent router for a personal finance assistant. Given the user's message, call exactly one tool:
 
-- log_transaction: the user is stating they bought or sold something and gave enough detail to log it (asset class, action, and quantity at minimum). Estimate "amount" (total transaction value) from what they said if possible.
+- log_transaction: the user is stating they bought or sold something and gave enough detail to log it (asset class, action, and quantity at minimum). Estimate "amount" (total transaction value) from what they said if possible. For gold/real_estate/other/mutual_fund, include asset_name — a short label for what was bought (e.g. "flat", "car", "Gold"). For mutual funds, include scheme_code if the user gives one (an MFAPI.in scheme code); if they don't, omit it — a NAV can't be looked up without it.
+- update_asset_value: the user is stating a NEW current worth for something they already own (e.g. "my flat is now worth 55 lakh") — this revises a stored estimate, it is not a new purchase. Only valid for real_estate and other.
 - render_ui: the user is asking a question best answered with a chart or visualization rather than a text answer.
 - ask_clarification: a required detail is genuinely missing or ambiguous (e.g. "sell some TSLA" doesn't say how many shares). Ask one short, specific question.
 
@@ -17,7 +21,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "log_transaction",
     description:
-      "Log a buy/sell/manual_entry transaction directly into the transactions table. No broker execution, no guardrails — just a direct log entry.",
+      "Log a buy/sell/manual_entry transaction. For non-stock classes (mutual_fund, gold, real_estate, other) this also creates the asset/lot if it doesn't exist yet, or adds to it if it does.",
     input_schema: {
       type: "object",
       properties: {
@@ -32,15 +36,38 @@ const TOOLS: Anthropic.Tool[] = [
         },
         quantity: {
           type: "number",
-          description: "Quantity transacted, e.g. number of shares or grams",
+          description: "Quantity transacted, e.g. number of shares, fund units, or grams. Use 1 for real_estate/other.",
         },
         amount: {
           type: "number",
           description:
             "Total monetary value of the transaction (quantity * price). Best estimate if not explicitly stated.",
         },
+        asset_name: {
+          type: "string",
+          description:
+            "Short label for the asset, used for mutual_fund/gold/real_estate/other (e.g. 'flat', 'car', 'Gold'). Not needed for stock.",
+        },
+        scheme_code: {
+          type: "string",
+          description: "MFAPI.in scheme code, only for mutual_fund purchases where the user gave/implied one.",
+        },
       },
       required: ["asset_class", "action", "quantity"],
+    },
+  },
+  {
+    name: "update_asset_value",
+    description:
+      "Update the stored current value of an existing manually-priced asset (real_estate or other) when the user states a new estimate. Does not log a transaction — just revises the stored value.",
+    input_schema: {
+      type: "object",
+      properties: {
+        asset_class: { type: "string", enum: ["real_estate", "other"] },
+        asset_name: { type: "string", description: "Name/label identifying which asset, e.g. 'flat', 'car'" },
+        new_value: { type: "number" },
+      },
+      required: ["asset_class", "asset_name", "new_value"],
     },
   },
   {
@@ -76,13 +103,72 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+const DEFAULT_ASSET_NAMES: Record<string, string> = {
+  gold: "Gold",
 };
 
-function json(body: unknown, status = 200): Response {
-  return Response.json(body, { status, headers: corsHeaders });
+function symbolForAsset(assetClass: string, schemeCode?: string): string | null {
+  if (assetClass === "gold") return "GOLD";
+  if (assetClass === "mutual_fund") return schemeCode ?? null;
+  return null; // real_estate / other: matched by name, not symbol
+}
+
+async function findOrCreateAsset(
+  supabase: AdminClient,
+  userId: string,
+  assetClass: string,
+  assetName: string,
+  symbol: string | null,
+): Promise<{ id: string; created: boolean }> {
+  let query = supabase.from("assets").select("id").eq("user_id", userId).eq("asset_class", assetClass);
+  query = symbol ? query.eq("symbol", symbol) : query.ilike("name", assetName);
+  const { data: existing, error: findError } = await query.limit(1);
+  if (findError) throw new Error(findError.message);
+  if (existing && existing.length > 0) {
+    return { id: existing[0].id, created: false };
+  }
+
+  const { data: created, error: createError } = await supabase
+    .from("assets")
+    .insert({ user_id: userId, broker_connection_id: null, symbol, name: assetName, asset_class: assetClass })
+    .select("id")
+    .single();
+  if (createError) throw new Error(createError.message);
+  return { id: created.id, created: true };
+}
+
+// One lot per asset, same simplification as the relay's holdings sync — real
+// per-trade FIFO lots are a tax-engine (build-order step 8) concern.
+async function upsertLotForPurchase(supabase: AdminClient, assetId: string, quantity: number, amount: number): Promise<void> {
+  const { data: existingLot, error: findError } = await supabase
+    .from("lots")
+    .select("id, quantity, buy_price")
+    .eq("asset_id", assetId)
+    .limit(1);
+  if (findError) throw new Error(findError.message);
+
+  if (existingLot && existingLot.length > 0) {
+    const lot = existingLot[0];
+    const oldQuantity = Number(lot.quantity);
+    const oldInvested = oldQuantity * Number(lot.buy_price);
+    const newQuantity = oldQuantity + quantity;
+    const newInvested = oldInvested + amount;
+    const newBuyPrice = newQuantity !== 0 ? newInvested / newQuantity : amount;
+    const { error: updateError } = await supabase
+      .from("lots")
+      .update({ quantity: newQuantity, buy_price: newBuyPrice })
+      .eq("id", lot.id);
+    if (updateError) throw new Error(updateError.message);
+  } else {
+    const buyPrice = quantity !== 0 ? amount / quantity : amount;
+    const { error: insertError } = await supabase.from("lots").insert({
+      asset_id: assetId,
+      quantity,
+      buy_price: buyPrice,
+      buy_date: new Date().toISOString().slice(0, 10),
+    });
+    if (insertError) throw new Error(insertError.message);
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -110,7 +196,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "ANTHROPIC_API_KEY is not configured as a project secret" }, 500);
   }
 
-  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const supabase = createAdminClient();
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
   // Check pending_intents first — a short reply like "5" should resolve
@@ -166,23 +252,75 @@ Deno.serve(async (req: Request) => {
 
   switch (toolUse.name) {
     case "log_transaction": {
+      const assetClass = input.asset_class as string;
+      const action = input.action as string;
+      const quantity = Number(input.quantity ?? 0);
+      const amount = Number(input.amount ?? 0);
+      const assetName = (input.asset_name as string | undefined) ?? DEFAULT_ASSET_NAMES[assetClass] ?? assetClass;
+      const schemeCode = input.scheme_code as string | undefined;
+
+      let assetId: string | null = null;
+
+      // Stock assets are created/synced by the relay service, not here (see
+      // relay-service/app/holdings_sync.py) — unchanged from the previous step.
+      // "sell" against these classes isn't handled yet (out of scope for this
+      // step); it still logs a transaction row, just without asset linkage.
+      if (assetClass !== "stock" && (action === "buy" || action === "manual_entry")) {
+        try {
+          const symbol = symbolForAsset(assetClass, schemeCode);
+          const asset = await findOrCreateAsset(supabase, user_id, assetClass, assetName, symbol);
+          assetId = asset.id;
+          if (asset.created && (assetClass === "real_estate" || assetClass === "other")) {
+            await supabase.from("assets").update({ manual_current_value: amount }).eq("id", asset.id);
+          }
+          await upsertLotForPurchase(supabase, assetId, quantity, amount);
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+        }
+      }
+
       const { data, error } = await supabase
         .from("transactions")
-        .insert({
-          user_id,
-          asset_id: null,
-          action: input.action,
-          quantity: input.quantity,
-          amount: input.amount ?? 0,
-          source: "manual",
-        })
+        .insert({ user_id, asset_id: assetId, action, quantity, amount, source: "manual" })
         .select()
         .single();
       if (error) return json({ error: error.message }, 500);
       return json({
         tool: "log_transaction",
-        message: `Logged: ${input.action} ${input.quantity} (${input.asset_class}), amount ~${input.amount ?? 0}.`,
+        message: `Logged: ${action} ${quantity} ${assetName} (${assetClass}), amount ~${amount}.`,
         transaction: data,
+      });
+    }
+    case "update_asset_value": {
+      const assetClass = input.asset_class as string;
+      const assetName = input.asset_name as string;
+      const newValue = Number(input.new_value);
+
+      const { data: existing, error: findError } = await supabase
+        .from("assets")
+        .select("id, name")
+        .eq("user_id", user_id)
+        .eq("asset_class", assetClass)
+        .ilike("name", `%${assetName}%`)
+        .limit(1);
+
+      if (findError) return json({ error: findError.message }, 500);
+      if (!existing || existing.length === 0) {
+        return json({
+          tool: "update_asset_value",
+          message: `I couldn't find an existing ${assetClass} asset matching "${assetName}" to update.`,
+        });
+      }
+
+      const { error: updateError } = await supabase
+        .from("assets")
+        .update({ manual_current_value: newValue })
+        .eq("id", existing[0].id);
+      if (updateError) return json({ error: updateError.message }, 500);
+
+      return json({
+        tool: "update_asset_value",
+        message: `Updated ${existing[0].name} to ₹${newValue.toLocaleString("en-IN")}.`,
       });
     }
     case "render_ui": {

@@ -1,39 +1,47 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
-import { fetchNetWorth, type NetWorthHolding } from '../lib/api'
+import { fetchNetWorth } from '../lib/api'
 import type { VizProps } from '../lib/types'
 
-const COLORS = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777']
+const COLORS: Record<string, string> = {
+  stock: '#2563eb',
+  mutual_fund: '#059669',
+  gold: '#d97706',
+  real_estate: '#7c3aed',
+  other: '#6b7280',
+}
 
-// Real data — same get-net-worth source as PortfolioSummaryCard. Only stock
-// holdings exist right now; other asset classes (gold, mutual funds, etc.)
-// are a later build-order step, so this is a distribution across the
-// holdings that exist today, not yet across asset classes.
-export function AssetDistributionPie({ livePrices }: VizProps) {
-  const [holdings, setHoldings] = useState<NetWorthHolding[] | null>(null)
+const LABELS: Record<string, string> = {
+  stock: 'Stocks',
+  mutual_fund: 'Mutual Funds',
+  gold: 'Gold',
+  real_estate: 'Real Estate',
+  other: 'Other',
+}
+
+// Real data across ALL asset classes now (build-order step 6) — each class
+// valued by its own strategy in supabase/functions/_shared/valuation.ts.
+export function AssetDistributionPie(_props: VizProps) {
+  const [byAssetClass, setByAssetClass] = useState<Record<string, number> | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchNetWorth()
-      .then((res) => setHoldings(res.holdings))
+      .then((res) => setByAssetClass(res.by_asset_class))
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
 
   const slices = useMemo(() => {
-    if (!holdings) return []
-    return holdings
-      .map((h) => {
-        const live = livePrices[h.symbol]
-        const price = live?.ltp ?? h.current_price ?? 0
-        return { name: h.symbol, value: h.quantity * price }
-      })
-      .filter((s) => s.value > 0)
-  }, [holdings, livePrices])
+    if (!byAssetClass) return []
+    return Object.entries(byAssetClass)
+      .filter(([, value]) => value > 0)
+      .map(([assetClass, value]) => ({ name: LABELS[assetClass] ?? assetClass, assetClass, value }))
+  }, [byAssetClass])
 
   if (error) {
     return <div className="p-6 text-sm text-red-600">Couldn't load distribution: {error}</div>
   }
-  if (!holdings) {
+  if (!byAssetClass) {
     return <div className="p-6 text-sm text-neutral-400">Loading distribution…</div>
   }
   if (slices.length === 0) {
@@ -42,13 +50,13 @@ export function AssetDistributionPie({ livePrices }: VizProps) {
 
   return (
     <div className="flex h-full flex-col gap-2 p-6">
-      <div className="text-sm text-neutral-500">Stock holdings by value (other asset classes come later)</div>
+      <div className="text-sm text-neutral-500">Net worth by asset class</div>
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={slices} dataKey="value" nameKey="name" outerRadius="80%" label>
-              {slices.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              {slices.map((slice) => (
+                <Cell key={slice.assetClass} fill={COLORS[slice.assetClass] ?? '#9ca3af'} />
               ))}
             </Pie>
             <Tooltip />
