@@ -1,21 +1,31 @@
 // Intent router (build-order step 4, extended in step 6 for non-stock asset
-// classes). Text input only, no guardrails yet. log_transaction logs
-// directly — no broker execution, no tax/affordability checks, no
-// confirm-before-execute flow. Those are later, explicitly deferred steps.
+// classes, step 7 for recurring contribution rules, step 9 for the
+// affordability engine). Text input only, no guardrails yet. log_transaction
+// logs directly — no broker execution, no confirm-before-execute flow. Those
+// are later, explicitly deferred steps (tax engine, step 8, is on hold too).
 import Anthropic from "npm:@anthropic-ai/sdk";
+import {
+  DEFAULT_ASSET_NAMES,
+  findExistingAsset,
+  findOrCreateAsset,
+  symbolForAsset,
+  upsertLotForPurchase,
+} from "../_shared/assets.ts";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { advanceDate, today } from "../_shared/dates.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
-
-type AdminClient = ReturnType<typeof createAdminClient>;
 
 const SYSTEM_PROMPT = `You are the intent router for a personal finance assistant. Given the user's message, call exactly one tool:
 
 - log_transaction: the user is stating they bought or sold something and gave enough detail to log it (asset class, action, and quantity at minimum). Estimate "amount" (total transaction value) from what they said if possible. For gold/real_estate/other/mutual_fund, include asset_name — a short label for what was bought (e.g. "flat", "car", "Gold"). For mutual funds, include scheme_code if the user gives one (an MFAPI.in scheme code); if they don't, omit it — a NAV can't be looked up without it.
 - update_asset_value: the user is stating a NEW current worth for something they already own (e.g. "my flat is now worth 55 lakh") — this revises a stored estimate, it is not a new purchase. Only valid for real_estate and other.
+- create_recurring_rule: the user is setting up a STANDING recurring contribution (e.g. "I'm investing 3k in gold every month"), not a one-time purchase. The actual purchase happens later on schedule, not immediately.
+- update_financial_profile: the user is stating a fact about their income, expenses, or existing EMI obligations (e.g. "my monthly income is 1.2 lakh", "my monthly expenses are 40k", "I have an existing EMI of 15000"). Only set the field(s) they actually stated.
+- check_affordability: the user is asking whether they can afford a purchase (e.g. "can I afford an 8 lakh car", "can I afford this in cash", "...with a 15000 monthly EMI"). If they mention financing/EMI, pass new_emi; if it's cash, omit it.
 - render_ui: the user is asking a question best answered with a chart or visualization rather than a text answer.
 - ask_clarification: a required detail is genuinely missing or ambiguous (e.g. "sell some TSLA" doesn't say how many shares). Ask one short, specific question.
 
-Do not discuss broker order execution, taxes, or affordability — none of that is implemented yet. Just route the intent.`;
+Do not discuss broker order execution or taxes — the tax engine isn't implemented yet. Just route the intent.`;
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -71,6 +81,47 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "create_recurring_rule",
+    description:
+      "Create a standing recurring contribution rule, e.g. 'I'm investing 3k in gold every month'. This only schedules the rule — the purchase itself happens later when process-recurring-rules runs, not immediately.",
+    input_schema: {
+      type: "object",
+      properties: {
+        asset_class: { type: "string", enum: ["stock", "mutual_fund", "gold", "real_estate", "other"] },
+        amount: { type: "number", description: "Amount to contribute each period" },
+        frequency: { type: "string", enum: ["daily", "weekly", "monthly"] },
+      },
+      required: ["asset_class", "amount", "frequency"],
+    },
+  },
+  {
+    name: "update_financial_profile",
+    description:
+      "Update the user's financial profile (monthly income, monthly expenses, and/or existing EMI obligations). Only include the field(s) the user actually stated.",
+    input_schema: {
+      type: "object",
+      properties: {
+        monthly_income: { type: "number" },
+        monthly_expenses: { type: "number" },
+        existing_emis: { type: "number", description: "Total existing monthly EMI obligations" },
+      },
+    },
+  },
+  {
+    name: "check_affordability",
+    description:
+      "Check whether the user can afford a purchase: runs an emergency-fund check, an FOIR/40% check (only if financed), and shows an opportunity-cost note.",
+    input_schema: {
+      type: "object",
+      properties: {
+        item_description: { type: "string", description: "Short description of the purchase, e.g. 'a car'" },
+        cost: { type: "number" },
+        new_emi: { type: "number", description: "Monthly EMI if financed. Omit entirely for a cash purchase." },
+      },
+      required: ["item_description", "cost"],
+    },
+  },
+  {
     name: "render_ui",
     description:
       "Render a chart/visualization in the app's central canvas by returning a structured component spec. Known components: comparison_chart, asset_distribution, portfolio_summary, affordability_result.",
@@ -102,74 +153,6 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
 ];
-
-const DEFAULT_ASSET_NAMES: Record<string, string> = {
-  gold: "Gold",
-};
-
-function symbolForAsset(assetClass: string, schemeCode?: string): string | null {
-  if (assetClass === "gold") return "GOLD";
-  if (assetClass === "mutual_fund") return schemeCode ?? null;
-  return null; // real_estate / other: matched by name, not symbol
-}
-
-async function findOrCreateAsset(
-  supabase: AdminClient,
-  userId: string,
-  assetClass: string,
-  assetName: string,
-  symbol: string | null,
-): Promise<{ id: string; created: boolean }> {
-  let query = supabase.from("assets").select("id").eq("user_id", userId).eq("asset_class", assetClass);
-  query = symbol ? query.eq("symbol", symbol) : query.ilike("name", assetName);
-  const { data: existing, error: findError } = await query.limit(1);
-  if (findError) throw new Error(findError.message);
-  if (existing && existing.length > 0) {
-    return { id: existing[0].id, created: false };
-  }
-
-  const { data: created, error: createError } = await supabase
-    .from("assets")
-    .insert({ user_id: userId, broker_connection_id: null, symbol, name: assetName, asset_class: assetClass })
-    .select("id")
-    .single();
-  if (createError) throw new Error(createError.message);
-  return { id: created.id, created: true };
-}
-
-// One lot per asset, same simplification as the relay's holdings sync — real
-// per-trade FIFO lots are a tax-engine (build-order step 8) concern.
-async function upsertLotForPurchase(supabase: AdminClient, assetId: string, quantity: number, amount: number): Promise<void> {
-  const { data: existingLot, error: findError } = await supabase
-    .from("lots")
-    .select("id, quantity, buy_price")
-    .eq("asset_id", assetId)
-    .limit(1);
-  if (findError) throw new Error(findError.message);
-
-  if (existingLot && existingLot.length > 0) {
-    const lot = existingLot[0];
-    const oldQuantity = Number(lot.quantity);
-    const oldInvested = oldQuantity * Number(lot.buy_price);
-    const newQuantity = oldQuantity + quantity;
-    const newInvested = oldInvested + amount;
-    const newBuyPrice = newQuantity !== 0 ? newInvested / newQuantity : amount;
-    const { error: updateError } = await supabase
-      .from("lots")
-      .update({ quantity: newQuantity, buy_price: newBuyPrice })
-      .eq("id", lot.id);
-    if (updateError) throw new Error(updateError.message);
-  } else {
-    const buyPrice = quantity !== 0 ? amount / quantity : amount;
-    const { error: insertError } = await supabase.from("lots").insert({
-      asset_id: assetId,
-      quantity,
-      buy_price: buyPrice,
-      buy_date: new Date().toISOString().slice(0, 10),
-    });
-    if (insertError) throw new Error(insertError.message);
-  }
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -322,6 +305,119 @@ Deno.serve(async (req: Request) => {
         tool: "update_asset_value",
         message: `Updated ${existing[0].name} to ₹${newValue.toLocaleString("en-IN")}.`,
       });
+    }
+    case "create_recurring_rule": {
+      const assetClass = input.asset_class as string;
+      const amount = Number(input.amount);
+      const frequency = input.frequency as string;
+      const assetName = DEFAULT_ASSET_NAMES[assetClass] ?? assetClass;
+
+      // Deliberately does NOT create the asset now — only on first actual
+      // run (process-recurring-rules), per the spec. If one already exists,
+      // link it now so projections/valuation can use it immediately.
+      let assetId: string | null = null;
+      try {
+        assetId =
+          assetClass !== "stock"
+            ? await findExistingAsset(supabase, user_id, assetClass, assetName, symbolForAsset(assetClass))
+            : null;
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+
+      const nextRunDate = advanceDate(today(), frequency);
+
+      const { data, error } = await supabase
+        .from("recurring_rules")
+        .insert({
+          user_id,
+          asset_class: assetClass,
+          asset_id: assetId,
+          amount,
+          frequency,
+          next_run_date: nextRunDate,
+          active: true,
+        })
+        .select()
+        .single();
+      if (error) return json({ error: error.message }, 500);
+
+      return json({
+        tool: "create_recurring_rule",
+        message: `Set up a recurring ${frequency} contribution of ₹${amount} to ${assetName}. First run: ${nextRunDate}.`,
+        rule: data,
+      });
+    }
+    case "update_financial_profile": {
+      const updates: Record<string, number> = {};
+      if (input.monthly_income != null) updates.monthly_income = Number(input.monthly_income);
+      if (input.monthly_expenses != null) updates.monthly_expenses = Number(input.monthly_expenses);
+      if (input.existing_emis != null) updates.existing_emis = Number(input.existing_emis);
+
+      if (Object.keys(updates).length === 0) {
+        return json({ tool: "update_financial_profile", message: "I didn't catch a value to update." });
+      }
+
+      const { data: existing, error: findError } = await supabase
+        .from("financial_profile")
+        .select("user_id")
+        .eq("user_id", user_id)
+        .maybeSingle();
+      if (findError) return json({ error: findError.message }, 500);
+
+      const result = existing
+        ? await supabase.from("financial_profile").update(updates).eq("user_id", user_id).select().single()
+        : await supabase.from("financial_profile").insert({ user_id, ...updates }).select().single();
+      if (result.error) return json({ error: result.error.message }, 500);
+
+      const parts = Object.entries(updates)
+        .map(([k, v]) => `${k.replace(/_/g, " ")}=₹${Number(v).toLocaleString("en-IN")}`)
+        .join(", ");
+      return json({
+        tool: "update_financial_profile",
+        message: `Updated your financial profile: ${parts}.`,
+        profile: result.data,
+      });
+    }
+    case "check_affordability": {
+      const itemDescription = input.item_description as string;
+      const cost = Number(input.cost);
+      const newEmi = input.new_emi != null ? Number(input.new_emi) : undefined;
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const affordabilityRes = await fetch(`${supabaseUrl}/functions/v1/check-affordability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+        body: JSON.stringify({ user_id, purchase_amount: cost, new_emi: newEmi }),
+      });
+      const affordabilityResult = await affordabilityRes.json();
+      if (!affordabilityRes.ok) {
+        return json({ error: affordabilityResult.error ?? "check-affordability call failed" }, 500);
+      }
+
+      // Ask Claude to narrate the result naturally instead of dumping raw numbers.
+      const narration = await anthropic.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 1024,
+        thinking: { type: "adaptive" },
+        system:
+          "You just ran an affordability check for the user's purchase. Explain which checks passed/failed and by how much, mention the opportunity cost as informational context (never as a pass/fail), and let them decide — don't just answer yes/no. Be concise and specific with rupee amounts.",
+        messages: [
+          {
+            role: "user",
+            content:
+              `The user asked: "can I afford ${itemDescription} (₹${cost})` +
+              `${newEmi ? ` with a ₹${newEmi}/month EMI` : " in cash"}?"\n\n` +
+              `Affordability check result:\n${JSON.stringify(affordabilityResult, null, 2)}\n\n` +
+              `Summarize this for the user in plain language.`,
+          },
+        ],
+      });
+      const narrationBlock = narration.content.find((b) => b.type === "text");
+      const summary = narrationBlock && "text" in narrationBlock ? narrationBlock.text : "Here's your affordability check.";
+
+      return json({ tool: "check_affordability", message: summary, result: affordabilityResult });
     }
     case "render_ui": {
       return json({ tool: "render_ui", component: input.component, data: input.data });

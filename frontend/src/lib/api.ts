@@ -47,6 +47,9 @@ export type HandleMessageResponse =
   | { tool: 'render_ui'; component: string; data: Record<string, unknown> }
   | { tool: 'log_transaction'; message: string; transaction: unknown }
   | { tool: 'update_asset_value'; message: string }
+  | { tool: 'create_recurring_rule'; message: string; rule: unknown }
+  | { tool: 'update_financial_profile'; message: string; profile: unknown }
+  | { tool: 'check_affordability'; message: string; result: Record<string, unknown> }
   | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
   | { tool: null; message: string }
 

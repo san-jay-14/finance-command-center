@@ -26,6 +26,11 @@ function App() {
       if (response.tool === 'render_ui') {
         setCanvasSpec({ component: response.component, data: response.data })
         setChatLog((log) => [...log, { role: 'assistant', text: `Showing ${response.component.replace(/_/g, ' ')}.` }])
+      } else if (response.tool === 'check_affordability') {
+        // Combines a natural-language explanation (chat) with the visual
+        // three-check breakdown (canvas) — not just text, per the brief.
+        setCanvasSpec({ component: 'affordability_result', data: response.result })
+        setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
       } else {
         setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
       }
