@@ -2,3 +2,9 @@ fastapi
 uvicorn
 smartapi-python
 pyotp
+logzero
+websocket-client
+python-dotenv
+tzdata
+httpx
+supabase

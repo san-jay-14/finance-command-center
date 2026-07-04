@@ -26,3 +26,6 @@ supabase/.temp
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# logzero default log output (SmartApi dependency)
+relay-service/logs/
