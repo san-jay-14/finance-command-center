@@ -1,0 +1,13 @@
+{
+  "name": "finagent",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Voice-controlled personal finance command center — convenience scripts for local dev",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "dev:relay": "cd relay-service && venv/Scripts/python -m uvicorn app.main:app --reload --port 8000",
+    "supabase:start": "npx supabase start --workdir supabase",
+    "supabase:db-push": "npx supabase db push --workdir supabase"
+  }
+}

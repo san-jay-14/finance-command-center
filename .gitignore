@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+
+# OS
+.DS_Store
+
+# Supabase
+supabase/.branches
+supabase/.temp
+
+# Editor
+.vscode/
+.idea/
+
+# Claude Code local settings
+.claude/settings.local.json
