@@ -3,6 +3,7 @@ import { Canvas } from './components/Canvas'
 import { VoiceInput } from './components/VoiceInput'
 import { useLivePrices } from './hooks/useLivePrices'
 import { sendMessage } from './lib/api'
+import { speak } from './lib/speech'
 import type { RenderSpec } from './lib/types'
 
 const USER_ID = import.meta.env.VITE_USER_ID
@@ -18,24 +19,34 @@ function App() {
   const [pending, setPending] = useState(false)
   const livePrices = useLivePrices()
 
-  async function handleSend(message: string) {
+  // viaVoice gates spoken output only — voice reuses the exact same
+  // sendMessage/handle-message path text already uses (brief section 8, step
+  // 10), it just also talks back since there's no input box to reassure you
+  // something happened.
+  async function handleSend(message: string, viaVoice = false) {
     setChatLog((log) => [...log, { role: 'user', text: message }])
     setPending(true)
     try {
       const response = await sendMessage(message, USER_ID)
       if (response.tool === 'render_ui') {
+        const confirmation = `Showing ${response.component.replace(/_/g, ' ')}.`
         setCanvasSpec({ component: response.component, data: response.data })
-        setChatLog((log) => [...log, { role: 'assistant', text: `Showing ${response.component.replace(/_/g, ' ')}.` }])
+        setChatLog((log) => [...log, { role: 'assistant', text: confirmation }])
+        if (viaVoice) speak(confirmation)
       } else if (response.tool === 'check_affordability') {
         // Combines a natural-language explanation (chat) with the visual
         // three-check breakdown (canvas) — not just text, per the brief.
         setCanvasSpec({ component: 'affordability_result', data: response.result })
         setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
+        if (viaVoice) speak(response.message)
       } else {
         setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
+        if (viaVoice) speak(response.message)
       }
     } catch (err) {
-      setChatLog((log) => [...log, { role: 'assistant', text: `Something went wrong: ${(err as Error).message}` }])
+      const errorText = `Something went wrong: ${(err as Error).message}`
+      setChatLog((log) => [...log, { role: 'assistant', text: errorText }])
+      if (viaVoice) speak(errorText)
     } finally {
       setPending(false)
     }

@@ -56,3 +56,20 @@ export type HandleMessageResponse =
 export function sendMessage(message: string, userId: string): Promise<HandleMessageResponse> {
   return callFunction<HandleMessageResponse>('handle-message', { message, user_id: userId })
 }
+
+export async function fetchSpeechAudio(text: string): Promise<Blob> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/text-to-speech`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      apikey: SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ text }),
+  })
+  if (!res.ok) {
+    const detail = await res.text()
+    throw new Error(`text-to-speech failed (${res.status}): ${detail}`)
+  }
+  return res.blob()
+}
