@@ -1,1 +1,201 @@
 @import "tailwindcss";
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
+
+@theme {
+  --color-ink: #050505;
+  --color-panel: #16161a;
+  --color-gold: #c9a227;
+  --color-champagne: #f0d98c;
+  --color-gain: #2fa88d;
+  --color-loss: #c1543c;
+  --color-parchment: #e7e3d8;
+
+  --font-display: "Space Grotesk Variable", "Space Grotesk", sans-serif;
+  --font-body: "Inter Variable", "Inter", sans-serif;
+  --font-numeric: "Geist Mono Variable", "JetBrains Mono", monospace;
+}
+
+/* The dashboard is a fixed 100vh instrument panel — nothing may ever scroll
+   (hard constraint). Inner columns self-truncate via row capping instead. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-parchment);
+}
+
+/* ---------------------------------------------------- aurora background --
+   Slow-drifting blurred color blobs (navy/gold/teal), ambient not busy. */
+.aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  will-change: transform;
+}
+
+@keyframes aurora-drift-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(12vw, 8vh) scale(1.15);
+  }
+}
+
+@keyframes aurora-drift-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1.1);
+  }
+  50% {
+    transform: translate(-10vw, -6vh) scale(0.95);
+  }
+}
+
+@keyframes aurora-drift-c {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(0.95);
+  }
+  50% {
+    transform: translate(6vw, -10vh) scale(1.1);
+  }
+}
+
+.aurora-a {
+  animation: aurora-drift-a 26s ease-in-out infinite;
+}
+.aurora-b {
+  animation: aurora-drift-b 31s ease-in-out infinite;
+}
+.aurora-c {
+  animation: aurora-drift-c 23s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------- glass panels --
+   Semi-transparent blurred surface with a 1px gold-to-transparent gradient
+   border whose highlight sweeps slowly around the edge (rotating conic
+   gradient masked to the border ring). */
+@property --sweep {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes border-sweep {
+  to {
+    --sweep: 360deg;
+  }
+}
+
+.glass-panel {
+  position: relative;
+  /* One step lighter than the #050505 base so panels stay visually distinct
+     against true black — a navy-tinted surface (the old rgba(19,27,46,...))
+     would look muddy here, so this is neutral graphite instead. */
+  background: rgba(22, 22, 26, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 1rem;
+}
+
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--sweep),
+    rgba(201, 162, 39, 0.55),
+    rgba(201, 162, 39, 0.08) 22%,
+    rgba(201, 162, 39, 0.02) 50%,
+    rgba(201, 162, 39, 0.18) 78%,
+    rgba(201, 162, 39, 0.55)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: border-sweep 14s linear infinite;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------- live glow --
+   Soft breathing radial glow behind live figures — glow, never blink. */
+@keyframes glow-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.05);
+  }
+}
+
+.live-glow {
+  position: absolute;
+  inset: -20%;
+  border-radius: 9999px;
+  background: radial-gradient(ellipse at center, rgba(201, 162, 39, 0.22), transparent 65%);
+  filter: blur(18px);
+  animation: glow-breathe 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------- gradient headline --
+   Gold-to-champagne gradient text for the net worth display figure. */
+.gold-text {
+  background: linear-gradient(100deg, var(--color-gold) 10%, var(--color-champagne) 55%, var(--color-gold) 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* --------------------------------------------------------- blur-resolve --
+   Live figures change by blurring/fading out, then resolving into focus —
+   the signature transition. Driven by LiveNumber.tsx toggling .is-blurred. */
+.blur-resolve {
+  transition:
+    filter 160ms ease-out,
+    opacity 160ms ease-out;
+}
+
+.blur-resolve.is-blurred {
+  filter: blur(6px);
+  opacity: 0;
+}
+
+/* -------------------------------------------------- reduced motion -------
+   Ambient drift, border sweep, glow pulse, and blur-resolve all collapse to
+   static/instant equivalents. */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-a,
+  .aurora-b,
+  .aurora-c,
+  .glass-panel::before,
+  .live-glow {
+    animation: none;
+  }
+  .live-glow {
+    opacity: 0.45;
+  }
+  .blur-resolve {
+    transition: none;
+  }
+}

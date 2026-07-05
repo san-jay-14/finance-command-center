@@ -14,12 +14,18 @@ Deno.serve(async (req: Request) => {
   const rows = await valuateAssets(supabase);
 
   let totalValue = 0;
+  let dayChangeValue = 0;
+  let hasDayChange = false;
   const byAssetClass: Record<string, number> = {};
 
   const holdings = rows.map(({ holding, valuation }) => {
     if (valuation.current_value !== null) {
       totalValue += valuation.current_value;
       byAssetClass[holding.asset_class] = (byAssetClass[holding.asset_class] ?? 0) + valuation.current_value;
+    }
+    if (valuation.day_change_value != null) {
+      dayChangeValue += valuation.day_change_value;
+      hasDayChange = true;
     }
     return {
       asset_id: holding.asset_id,
@@ -34,8 +40,20 @@ Deno.serve(async (req: Request) => {
       if_sold_today_value: valuation.if_sold_today_value,
       adjustment_note: valuation.adjustment_note,
       price_as_of: valuation.price_as_of,
+      day_change_value: valuation.day_change_value ?? null,
+      day_change_pct: valuation.day_change_pct ?? null,
     };
   });
 
-  return json({ total_value: totalValue, by_asset_class: byAssetClass, holdings });
+  // Day change only covers holdings with a broker-reported previous close
+  // (stocks) — manual assets don't move intraday. Percentage is against the
+  // start-of-day value of those same holdings, not the whole net worth.
+  const prevTotal = totalValue - dayChangeValue;
+  return json({
+    total_value: totalValue,
+    day_change_value: hasDayChange ? dayChangeValue : null,
+    day_change_pct: hasDayChange && prevTotal > 0 ? (dayChangeValue / prevTotal) * 100 : null,
+    by_asset_class: byAssetClass,
+    holdings,
+  });
 });

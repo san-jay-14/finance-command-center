@@ -21,6 +21,9 @@ export type Valuation = {
   if_sold_today_value: number | null;
   adjustment_note: string;
   price_as_of: string | null;
+  // Only stocks have a broker-reported previous close; null elsewhere.
+  day_change_value?: number | null;
+  day_change_pct?: number | null;
 };
 
 export interface ValuationStrategy {
@@ -31,12 +34,21 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------- Stock ---
 export class StockValuation implements ValuationStrategy {
-  constructor(private latestPrices: Map<string, { ltp: number; tickedAt: string }>) {}
+  constructor(private latestPrices: Map<string, { ltp: number; tickedAt: string; prevClose?: number | null }>) {}
 
   async valuate(holding: HoldingRow): Promise<Valuation> {
     const price = holding.symbol ? this.latestPrices.get(holding.symbol) : undefined;
     const currentPrice = price?.ltp ?? null;
     const currentValue = currentPrice !== null ? holding.quantity * currentPrice : null;
+    const prevClose = price?.prevClose ?? null;
+    const dayChangeValue =
+      currentPrice !== null && prevClose !== null && prevClose > 0
+        ? (currentPrice - prevClose) * holding.quantity
+        : null;
+    const dayChangePct =
+      currentPrice !== null && prevClose !== null && prevClose > 0
+        ? ((currentPrice - prevClose) / prevClose) * 100
+        : null;
     return {
       current_price: currentPrice,
       current_value: currentValue,
@@ -44,6 +56,8 @@ export class StockValuation implements ValuationStrategy {
       adjustment_note:
         "Approximate STT only (~0.1%); brokerage assumed zero (Angel One delivery trades). Capital gains tax not included — tax engine not built yet.",
       price_as_of: price?.tickedAt ?? null,
+      day_change_value: dayChangeValue,
+      day_change_pct: dayChangePct,
     };
   }
 }
@@ -157,7 +171,7 @@ export class OtherValuation implements ValuationStrategy {
 
 export function getValuationStrategy(
   assetClass: string,
-  latestPrices: Map<string, { ltp: number; tickedAt: string }>,
+  latestPrices: Map<string, { ltp: number; tickedAt: string; prevClose?: number | null }>,
 ): ValuationStrategy {
   switch (assetClass) {
     case "stock":

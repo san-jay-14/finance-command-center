@@ -5,13 +5,12 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
 import { valuateAssets } from "../_shared/holdings.ts";
-import { monthlyEquivalent } from "../_shared/projection.ts";
+import { computeFoir, FOIR_LIMIT } from "../_shared/foir.ts";
 
 // Configurable assumptions for the opportunity-cost note — not buried deep
 // in the calculation below.
 const ASSUMED_ANNUAL_RETURN = 0.12; // 12%, a common assumption for Indian equity
 const OPPORTUNITY_COST_YEARS = 5;
-const FOIR_LIMIT = 0.4; // 40%
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -72,26 +71,20 @@ Deno.serve(async (req: Request) => {
   } else if (!profile || profile.monthly_income == null) {
     foirCheck = { status: "unavailable", reason: "monthly_income not set in financial_profile yet" };
   } else {
-    const { data: rules, error: rulesError } = await supabase
-      .from("recurring_rules")
-      .select("amount, frequency")
-      .eq("user_id", user_id)
-      .eq("active", true);
-    if (rulesError) return json({ error: rulesError.message }, 500);
-
-    const existingRecurringCommitments = (rules ?? []).reduce(
-      (sum, r) => sum + monthlyEquivalent(Number(r.amount), r.frequency),
-      0,
-    );
-    const existingEmis = Number(profile.existing_emis ?? 0);
-    const monthlyIncome = Number(profile.monthly_income);
-    const totalCommitments = existingEmis + existingRecurringCommitments + new_emi;
+    let standing;
+    try {
+      standing = await computeFoir(supabase, user_id, profile);
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+    const monthlyIncome = standing.monthly_income!;
+    const totalCommitments = standing.total_commitments + new_emi;
     const foirRatio = monthlyIncome > 0 ? totalCommitments / monthlyIncome : null;
 
     foirCheck = {
       status: foirRatio !== null && foirRatio < FOIR_LIMIT ? "pass" : "fail",
-      existing_emis: existingEmis,
-      existing_recurring_commitments: existingRecurringCommitments,
+      existing_emis: standing.existing_emis,
+      existing_recurring_commitments: standing.existing_recurring_commitments,
       new_emi,
       monthly_income: monthlyIncome,
       foir_ratio: foirRatio,

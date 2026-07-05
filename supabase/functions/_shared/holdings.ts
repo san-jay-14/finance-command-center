@@ -19,14 +19,20 @@ export async function valuateSingleAsset(
   const quantity = (lots ?? []).reduce((sum, l) => sum + Number(l.quantity), 0);
   const invested = (lots ?? []).reduce((sum, l) => sum + Number(l.quantity) * Number(l.buy_price), 0);
 
-  const latestPrices = new Map<string, { ltp: number; tickedAt: string }>();
+  const latestPrices = new Map<string, { ltp: number; tickedAt: string; prevClose?: number | null }>();
   if (asset.asset_class === "stock" && asset.symbol) {
     const { data: priceRow } = await supabase
       .from("latest_prices")
-      .select("symbol, ltp, ticked_at")
+      .select("symbol, ltp, ticked_at, prev_close")
       .eq("symbol", asset.symbol)
       .maybeSingle();
-    if (priceRow) latestPrices.set(priceRow.symbol, { ltp: Number(priceRow.ltp), tickedAt: priceRow.ticked_at });
+    if (priceRow) {
+      latestPrices.set(priceRow.symbol, {
+        ltp: Number(priceRow.ltp),
+        tickedAt: priceRow.ticked_at,
+        prevClose: priceRow.prev_close !== null ? Number(priceRow.prev_close) : null,
+      });
+    }
   }
 
   const holding: HoldingRow = {
@@ -65,7 +71,7 @@ export async function valuateAssets(
 
   const [lotsResult, pricesResult] = await Promise.all([
     supabase.from("lots").select("asset_id, quantity, buy_price").in("asset_id", assetIds),
-    supabase.from("latest_prices").select("symbol, ltp, ticked_at").in("symbol", stockSymbols),
+    supabase.from("latest_prices").select("symbol, ltp, ticked_at, prev_close").in("symbol", stockSymbols),
   ]);
 
   const lotsByAsset = new Map<string, { quantity: number; invested: number }>();
@@ -81,9 +87,13 @@ export async function valuateAssets(
     }
   }
 
-  const latestPrices = new Map<string, { ltp: number; tickedAt: string }>();
+  const latestPrices = new Map<string, { ltp: number; tickedAt: string; prevClose?: number | null }>();
   for (const price of pricesResult.data ?? []) {
-    latestPrices.set(price.symbol, { ltp: Number(price.ltp), tickedAt: price.ticked_at });
+    latestPrices.set(price.symbol, {
+      ltp: Number(price.ltp),
+      tickedAt: price.ticked_at,
+      prevClose: price.prev_close !== null ? Number(price.prev_close) : null,
+    });
   }
 
   const holdingRows: HoldingRow[] = assets.map((asset) => {

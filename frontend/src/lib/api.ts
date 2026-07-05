@@ -31,10 +31,14 @@ export type NetWorthHolding = {
   if_sold_today_value: number | null
   adjustment_note: string
   price_as_of: string | null
+  day_change_value: number | null
+  day_change_pct: number | null
 }
 
 export type NetWorthResponse = {
   total_value: number
+  day_change_value: number | null
+  day_change_pct: number | null
   by_asset_class: Record<string, number>
   holdings: NetWorthHolding[]
 }
@@ -57,6 +61,46 @@ export type HandleMessageResponse =
 
 export function sendMessage(message: string, userId: string): Promise<HandleMessageResponse> {
   return callFunction<HandleMessageResponse>('handle-message', { message, user_id: userId })
+}
+
+export type DashboardActivity = {
+  id: string
+  action: 'buy' | 'sell' | 'manual_entry'
+  quantity: number | null
+  amount: number
+  source: 'voice' | 'manual' | 'system'
+  created_at: string
+  asset_name: string | null
+  asset_class: string | null
+  symbol: string | null
+}
+
+export type DashboardUpcoming = {
+  type: 'recurring'
+  rule_id: string
+  asset_class: string
+  amount: number
+  frequency: 'daily' | 'weekly' | 'monthly'
+  date: string
+}
+
+export type DashboardResponse = {
+  profile: {
+    name: string | null
+    age: number | null
+    monthly_income: number | null
+    monthly_expenses: number | null
+    existing_emis: number
+    foir_ratio: number | null
+    foir_recurring_commitments: number
+    foir_limit: number
+  }
+  activity: DashboardActivity[]
+  upcoming: DashboardUpcoming[]
+}
+
+export function fetchDashboard(userId: string): Promise<DashboardResponse> {
+  return callFunction<DashboardResponse>('get-dashboard', { user_id: userId })
 }
 
 export type ProactiveInsightsResponse = { insights: string[] }

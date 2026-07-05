@@ -85,6 +85,7 @@ def _sync_one_holding(client: Client, user_id: str, broker_connection_id: str, h
             "symbol": holding.symbol,
             "ltp": holding.last_traded_price,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "prev_close": holding.previous_close,
         }
     )
 
