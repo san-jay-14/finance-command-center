@@ -15,17 +15,21 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { advanceDate, today } from "../_shared/dates.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
 
-const SYSTEM_PROMPT = `You are the intent router for a personal finance assistant. Given the user's message, call exactly one tool:
+function buildSystemPrompt(todayStr: string): string {
+  return `You are the intent router for a personal finance assistant. Today's date is ${todayStr}. Given the user's message, call exactly one tool:
 
 - log_transaction: the user is stating they bought or sold something and gave enough detail to log it (asset class, action, and quantity at minimum). Estimate "amount" (total transaction value) from what they said if possible. For gold/real_estate/other/mutual_fund, include asset_name — a short label for what was bought (e.g. "flat", "car", "Gold"). For mutual funds, include scheme_code if the user gives one (an MFAPI.in scheme code); if they don't, omit it — a NAV can't be looked up without it.
 - update_asset_value: the user is stating a NEW current worth for something they already own (e.g. "my flat is now worth 55 lakh") — this revises a stored estimate, it is not a new purchase. Only valid for real_estate and other.
 - create_recurring_rule: the user is setting up a STANDING recurring contribution (e.g. "I'm investing 3k in gold every month"), not a one-time purchase. The actual purchase happens later on schedule, not immediately.
 - update_financial_profile: the user is stating a fact about their income, expenses, or existing EMI obligations (e.g. "my monthly income is 1.2 lakh", "my monthly expenses are 40k", "I have an existing EMI of 15000"). Only set the field(s) they actually stated.
 - check_affordability: the user is asking whether they can afford a purchase (e.g. "can I afford an 8 lakh car", "can I afford this in cash", "...with a 15000 monthly EMI"). If they mention financing/EMI, pass new_emi; if it's cash, omit it.
+- run_backtest: the user is asking a hypothetical "what if I had invested X" question (e.g. "if I had invested 5000 rupees monthly in TSLA for the last year, what would it be worth now", "if I had put 50000 rupees in NVDA a year ago"). Resolve the natural-language timeframe into concrete from_date/to_date (ISO yyyy-mm-dd) yourself using today's date above. "every month"/"monthly"/"SIP" language means strategy_type='monthly_sip'; a single one-time amount means strategy_type='lump_sum'. Only these two strategies exist — don't invent others.
+- show_price_chart: the user just wants to see a symbol's real price history, e.g. "show me TSLA's chart", "how has NVDA been doing this month" — NOT an investment simulation (that's run_backtest) and NOT a two-symbol comparison (that's render_ui's comparison_chart). Resolve the timeframe into concrete from_date/to_date yourself; if no timeframe is mentioned, default to the last 3 months.
 - render_ui: the user is asking a question best answered with a chart or visualization rather than a text answer.
 - ask_clarification: a required detail is genuinely missing or ambiguous (e.g. "sell some TSLA" doesn't say how many shares). Ask one short, specific question.
 
 Do not discuss broker order execution or taxes — the tax engine isn't implemented yet. Just route the intent.`;
+}
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -122,6 +126,36 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "run_backtest",
+    description:
+      "Simulate a hypothetical past investment: 'lump_sum' (invest once at the start of the range) or 'monthly_sip' (invest every month across the range) using real historical prices. Returns total invested, current value, and return.",
+    input_schema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "NSE/BSE trading symbol, e.g. 'TSLA', 'NVDA', 'COALINDIA'" },
+        strategy_type: { type: "string", enum: ["lump_sum", "monthly_sip"] },
+        amount: { type: "number", description: "Amount invested once (lump_sum) or per month (monthly_sip)" },
+        from_date: { type: "string", description: "Start of the backtest range, ISO yyyy-mm-dd" },
+        to_date: { type: "string", description: "End of the backtest range, ISO yyyy-mm-dd (usually today)" },
+      },
+      required: ["symbol", "strategy_type", "amount", "from_date", "to_date"],
+    },
+  },
+  {
+    name: "show_price_chart",
+    description:
+      "Show a real candlestick price chart for a single symbol — not an investment simulation (run_backtest) and not a two-symbol comparison (render_ui's comparison_chart).",
+    input_schema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "NSE/BSE trading symbol, e.g. 'TSLA', 'NVDA', 'COALINDIA'" },
+        from_date: { type: "string", description: "Start of the range, ISO yyyy-mm-dd. Default to 3 months ago if unspecified." },
+        to_date: { type: "string", description: "End of the range, ISO yyyy-mm-dd (usually today)" },
+      },
+      required: ["symbol", "from_date", "to_date"],
+    },
+  },
+  {
     name: "render_ui",
     description:
       "Render a chart/visualization in the app's central canvas by returning a structured component spec. Known components: comparison_chart, asset_distribution, portfolio_summary, affordability_result.",
@@ -209,7 +243,7 @@ Deno.serve(async (req: Request) => {
     model: "claude-opus-4-8",
     max_tokens: 2048,
     thinking: { type: "adaptive" },
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(today()),
     tools: TOOLS,
     messages: [{ role: "user", content: userContent }],
   });
@@ -418,6 +452,98 @@ Deno.serve(async (req: Request) => {
       const summary = narrationBlock && "text" in narrationBlock ? narrationBlock.text : "Here's your affordability check.";
 
       return json({ tool: "check_affordability", message: summary, result: affordabilityResult });
+    }
+    case "run_backtest": {
+      const symbol = input.symbol as string;
+      const strategyType = input.strategy_type as string;
+      const amount = Number(input.amount);
+      const fromDate = input.from_date as string;
+      const toDate = input.to_date as string;
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const backtestRes = await fetch(`${supabaseUrl}/functions/v1/run-backtest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
+        body: JSON.stringify({ symbol, strategy_type: strategyType, amount, from_date: fromDate, to_date: toDate }),
+      });
+      const backtestResult = await backtestRes.json();
+      if (!backtestRes.ok) {
+        return json({ error: backtestResult.error ?? "run-backtest call failed" }, 500);
+      }
+
+      // Ask Claude to narrate the result naturally instead of dumping raw numbers.
+      const narration = await anthropic.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 1024,
+        thinking: { type: "adaptive" },
+        system:
+          "You just ran a backtest simulating a hypothetical past investment. Explain total invested, current value, and the return (absolute and %) in plain language, using real historical prices. Be concise and specific with rupee amounts.",
+        messages: [
+          {
+            role: "user",
+            content:
+              `The user asked a hypothetical "what if I had invested" question about ${symbol} ` +
+              `(${strategyType === "monthly_sip" ? `₹${amount}/month` : `₹${amount} lump sum`} from ${fromDate} to ${toDate}).\n\n` +
+              `Backtest result:\n${JSON.stringify(backtestResult, null, 2)}\n\n` +
+              `Summarize this for the user in plain language.`,
+          },
+        ],
+      });
+      const narrationBlock = narration.content.find((b) => b.type === "text");
+      const summary = narrationBlock && "text" in narrationBlock ? narrationBlock.text : "Here's your backtest result.";
+
+      return json({ tool: "run_backtest", message: summary, result: backtestResult });
+    }
+    case "show_price_chart": {
+      const symbol = input.symbol as string;
+      const fromDate = input.from_date as string;
+      const toDate = input.to_date as string;
+
+      const relayBaseUrl = Deno.env.get("RELAY_BASE_URL");
+      if (!relayBaseUrl) {
+        return json({ error: "RELAY_BASE_URL is not configured as a project secret" }, 500);
+      }
+      const relaySecret = Deno.env.get("RELAY_SHARED_SECRET");
+
+      // Same relay /historical read-through cache built for run_backtest (Part
+      // B) — no duplicate fetching/caching logic, just a different consumer.
+      const params = new URLSearchParams({ symbol, interval: "ONE_DAY", from_date: fromDate, to_date: toDate });
+      const historicalRes = await fetch(`${relayBaseUrl}/historical?${params}`, {
+        headers: relaySecret ? { Authorization: `Bearer ${relaySecret}` } : {},
+      });
+      const historicalBody = await historicalRes.json();
+      if (!historicalRes.ok) {
+        return json({ error: historicalBody.detail ?? historicalBody.error ?? "relay /historical call failed" }, 500);
+      }
+
+      const candles = (historicalBody.candles ?? []) as { candle_date: string; close: number }[];
+      if (candles.length === 0) {
+        return json({
+          tool: "show_price_chart",
+          message: `I couldn't find any historical data for ${symbol} between ${fromDate} and ${toDate}.`,
+        });
+      }
+
+      // Computed directly rather than via a second Claude call — precise
+      // percentage math shouldn't be left to an LLM, and the point of this
+      // summary is exactly the number, not a narrative (speak the change, not
+      // the whole chart).
+      const first = candles[0];
+      const last = candles[candles.length - 1];
+      const pctChange = ((Number(last.close) - Number(first.close)) / Number(first.close)) * 100;
+      const direction = pctChange >= 0 ? "up" : "down";
+      const timeframeDays = Math.round(
+        (new Date(toDate).getTime() - new Date(fromDate).getTime()) / (1000 * 60 * 60 * 24),
+      );
+      const timeframeLabel = timeframeDays >= 60 ? `${Math.round(timeframeDays / 30)} months` : `${timeframeDays} days`;
+      const chartMessage = `${symbol} is ${direction} ${Math.abs(pctChange).toFixed(1)}% over the last ${timeframeLabel}.`;
+
+      return json({
+        tool: "show_price_chart",
+        message: chartMessage,
+        result: { symbol, from_date: fromDate, to_date: toDate, candles },
+      });
     }
     case "render_ui": {
       return json({ tool: "render_ui", component: input.component, data: input.data });

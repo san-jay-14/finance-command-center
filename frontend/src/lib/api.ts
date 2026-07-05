@@ -50,11 +50,19 @@ export type HandleMessageResponse =
   | { tool: 'create_recurring_rule'; message: string; rule: unknown }
   | { tool: 'update_financial_profile'; message: string; profile: unknown }
   | { tool: 'check_affordability'; message: string; result: Record<string, unknown> }
+  | { tool: 'run_backtest'; message: string; result: Record<string, unknown> }
+  | { tool: 'show_price_chart'; message: string; result: Record<string, unknown> }
   | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
   | { tool: null; message: string }
 
 export function sendMessage(message: string, userId: string): Promise<HandleMessageResponse> {
   return callFunction<HandleMessageResponse>('handle-message', { message, user_id: userId })
+}
+
+export type ProactiveInsightsResponse = { insights: string[] }
+
+export function fetchProactiveInsights(userId: string): Promise<ProactiveInsightsResponse> {
+  return callFunction<ProactiveInsightsResponse>('get-proactive-insights', { user_id: userId })
 }
 
 export async function fetchSpeechAudio(text: string): Promise<Blob> {

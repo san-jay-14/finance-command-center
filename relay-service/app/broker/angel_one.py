@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+import httpx
 import pyotp
 from SmartApi.smartConnect import SmartConnect
 from SmartApi.smartExceptions import SmartAPIException
@@ -13,7 +14,7 @@ from SmartApi.smartWebSocketV2 import SmartWebSocketV2
 
 from app.broker.base import BrokerAdapter
 from app.broker.errors import BrokerAPIError, BrokerAuthError
-from app.broker.types import Holding, OrderRequest, OrderResult, OrderStatus, Session
+from app.broker.types import Candle, Holding, OrderRequest, OrderResult, OrderStatus, Session
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -30,6 +31,30 @@ _EXCHANGE_TYPE_MAP = {
     "NCX": SmartWebSocketV2.NCX_FO,
     "CDS": SmartWebSocketV2.CDE_FO,
 }
+_REVERSE_EXCHANGE_TYPE_MAP = {v: k for k, v in _EXCHANGE_TYPE_MAP.items()}
+
+# Angel One's public instrument master — the standard way to resolve a
+# symbol's token for symbols that aren't currently held (get_holdings() only
+# populates tokens for what's actually in the portfolio). Corporate
+# actions/listings change this rarely, not intraday, so one fetch per relay
+# process lifetime is enough — no need to refetch per historical-data call.
+_INSTRUMENT_MASTER_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+_instrument_master: list[dict] | None = None
+_instrument_master_lock = asyncio.Lock()
+
+
+async def _load_instrument_master() -> list[dict]:
+    global _instrument_master
+    if _instrument_master is not None:
+        return _instrument_master
+    async with _instrument_master_lock:
+        if _instrument_master is not None:
+            return _instrument_master
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(_INSTRUMENT_MASTER_URL)
+            response.raise_for_status()
+            _instrument_master = response.json()
+        return _instrument_master
 
 
 def _next_midnight_ist() -> datetime:
@@ -183,6 +208,65 @@ class AngelOneAdapter(BrokerAdapter):
 
     async def get_order_status(self, session: Session, order_id: str) -> OrderStatus:
         raise NotImplementedError("get_order_status is not implemented yet — deferred by explicit product decision")
+
+    async def get_historical_data(
+        self, session: Session, symbol: str, interval: str, from_date: str, to_date: str
+    ) -> list[Candle]:
+        exchange, symboltoken = await self._resolve_symbol_token(symbol)
+        client = self._client_from_session(session)
+        params = {
+            "exchange": exchange,
+            "symboltoken": symboltoken,
+            "interval": interval,
+            "fromdate": from_date,
+            "todate": to_date,
+        }
+        try:
+            response = await asyncio.to_thread(client.getCandleData, params)
+        except SmartAPIException as exc:
+            raise BrokerAPIError(f"Angel One get_historical_data failed: {exc}") from exc
+        except Exception as exc:
+            raise BrokerAPIError(f"Angel One get_historical_data request failed: {exc}") from exc
+
+        if not response.get("status"):
+            raise BrokerAPIError(f"Angel One get_historical_data rejected: {response.get('message', 'Unknown error')}")
+
+        raw_candles = response.get("data") or []
+        return [
+            Candle(
+                date=str(row[0]),
+                open=float(row[1]),
+                high=float(row[2]),
+                low=float(row[3]),
+                close=float(row[4]),
+                volume=float(row[5]),
+            )
+            for row in raw_candles
+        ]
+
+    async def _resolve_symbol_token(self, symbol: str) -> tuple[str, str]:
+        # Reuse the holdings-derived cache when this symbol is already held —
+        # avoids the instrument-master fetch entirely for the common case.
+        cached = self._instrument_cache.get(symbol)
+        if cached is not None:
+            exchange_type, token = cached
+            exchange = _REVERSE_EXCHANGE_TYPE_MAP.get(exchange_type)
+            if exchange:
+                return exchange, token
+
+        # Fall back to Angel One's public instrument master for symbols never
+        # held (e.g. a hypothetical backtest on a stock the user doesn't own).
+        # Angel One only lists NSE/BSE instruments — a US-listed symbol like
+        # TSLA or NVDA simply won't be found here, which is expected, not a bug.
+        tradingsymbol = symbol if symbol.upper().endswith("-EQ") else f"{symbol.upper()}-EQ"
+        master = await _load_instrument_master()
+        for row in master:
+            if row.get("exch_seg") == "NSE" and row.get("symbol") == tradingsymbol:
+                return "NSE", str(row["token"])
+        raise BrokerAPIError(
+            f"Could not resolve '{symbol}' to an NSE/BSE instrument token — "
+            "Angel One only covers NSE/BSE-listed symbols, not international exchanges."
+        )
 
     def subscribe_live_prices(self, session: Session, symbols: list[str], on_tick: Callable) -> None:
         token_list, token_symbol_map = self._build_subscription(symbols)

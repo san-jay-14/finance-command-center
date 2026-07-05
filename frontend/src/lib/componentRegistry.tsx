@@ -1,6 +1,8 @@
 import type { ComponentType } from 'react'
 import { AffordabilityResultCard } from '../components/AffordabilityResultCard'
 import { AssetDistributionPie } from '../components/AssetDistributionPie'
+import { BacktestResultCard } from '../components/BacktestResultCard'
+import { CandlestickChart } from '../components/CandlestickChart'
 import { ComparisonChart } from '../components/ComparisonChart'
 import { PortfolioSummaryCard } from '../components/PortfolioSummaryCard'
 import type { VizProps } from './types'
@@ -12,4 +14,6 @@ export const componentRegistry: Record<string, ComponentType<VizProps>> = {
   comparison_chart: ComparisonChart,
   asset_distribution: AssetDistributionPie,
   affordability_result: AffordabilityResultCard,
+  backtest_result: BacktestResultCard,
+  candlestick_chart: CandlestickChart,
 }

@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Canvas } from './components/Canvas'
+import { InsightsBanner } from './components/InsightsBanner'
 import { VoiceInput } from './components/VoiceInput'
 import { useLivePrices } from './hooks/useLivePrices'
-import { sendMessage } from './lib/api'
+import { fetchProactiveInsights, sendMessage } from './lib/api'
 import { speak } from './lib/speech'
 import type { RenderSpec } from './lib/types'
 
@@ -17,7 +18,34 @@ function App() {
   const [canvasSpec, setCanvasSpec] = useState<RenderSpec | null>(null)
   const [chatLog, setChatLog] = useState<ChatEntry[]>([])
   const [pending, setPending] = useState(false)
+  const [insights, setInsights] = useState<string[]>([])
   const livePrices = useLivePrices()
+  // Tracks whether the proactive briefing has been spoken yet this session —
+  // a ref, not state, since reading it shouldn't trigger a re-render.
+  const briefedRef = useRef(false)
+
+  useEffect(() => {
+    fetchProactiveInsights(USER_ID)
+      .then((res) => setInsights(res.insights))
+      .catch((err) => console.warn('Failed to load proactive insights:', err))
+  }, [])
+
+  function speakIfVoice(text: string) {
+    // Browsers block unprompted audio autoplay, so the briefing can't just
+    // play itself on load — instead it piggybacks on the very first voice
+    // interaction's user gesture, prepended to whatever's actually spoken.
+    if (!briefedRef.current && insights.length > 0) {
+      briefedRef.current = true
+      speak(`${insights.join(' ')} Now, about what you asked: ${text}`)
+    } else {
+      speak(text)
+    }
+  }
+
+  function briefNow() {
+    briefedRef.current = true
+    speak(insights.join(' '))
+  }
 
   // viaVoice gates spoken output only — voice reuses the exact same
   // sendMessage/handle-message path text already uses (brief section 8, step
@@ -32,21 +60,32 @@ function App() {
         const confirmation = `Showing ${response.component.replace(/_/g, ' ')}.`
         setCanvasSpec({ component: response.component, data: response.data })
         setChatLog((log) => [...log, { role: 'assistant', text: confirmation }])
-        if (viaVoice) speak(confirmation)
+        if (viaVoice) speakIfVoice(confirmation)
       } else if (response.tool === 'check_affordability') {
         // Combines a natural-language explanation (chat) with the visual
         // three-check breakdown (canvas) — not just text, per the brief.
         setCanvasSpec({ component: 'affordability_result', data: response.result })
         setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
-        if (viaVoice) speak(response.message)
+        if (viaVoice) speakIfVoice(response.message)
+      } else if (response.tool === 'run_backtest') {
+        setCanvasSpec({ component: 'backtest_result', data: response.result })
+        setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
+        if (viaVoice) speakIfVoice(response.message)
+      } else if (response.tool === 'show_price_chart') {
+        // message is a short % change summary, not the whole candle series —
+        // that's what gets spoken/shown in chat, while the full data renders
+        // as the candlestick chart in the canvas.
+        setCanvasSpec({ component: 'candlestick_chart', data: response.result })
+        setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
+        if (viaVoice) speakIfVoice(response.message)
       } else {
         setChatLog((log) => [...log, { role: 'assistant', text: response.message }])
-        if (viaVoice) speak(response.message)
+        if (viaVoice) speakIfVoice(response.message)
       }
     } catch (err) {
       const errorText = `Something went wrong: ${(err as Error).message}`
       setChatLog((log) => [...log, { role: 'assistant', text: errorText }])
-      if (viaVoice) speak(errorText)
+      if (viaVoice) speakIfVoice(errorText)
     } finally {
       setPending(false)
     }
@@ -59,6 +98,8 @@ function App() {
       </header>
 
       <main className="flex flex-1 flex-col gap-4 p-6">
+        <InsightsBanner insights={insights} onBriefMe={briefNow} />
+
         {chatLog.length > 0 && (
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-4 text-sm">
             {chatLog.map((entry, i) => (

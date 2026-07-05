@@ -54,3 +54,13 @@ class OrderStatus:
     order_id: str
     status: str
     raw: dict[str, Any]
+
+
+@dataclass
+class Candle:
+    date: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float

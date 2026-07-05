@@ -8,11 +8,12 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 
 from app.broker.angel_one import AngelOneAdapter
 from app.broker.errors import BrokerAPIError, BrokerAuthError
 from app.broker.types import Session
+from app.historical_cache import covers_range, get_cached_range, upsert_candles
 from app.holdings_sync import sync_holdings
 from app.latest_prices import upsert_latest_price
 from app.realtime_broadcast import broadcast as broadcast_realtime
@@ -54,6 +55,17 @@ def _credentials_from_env() -> dict[str, str]:
         "pin": values["ANGEL_ONE_PIN"],
         "totp_secret": values["ANGEL_ONE_TOTP_SECRET"],
     }
+
+
+async def _require_relay_auth(authorization: str | None = Header(default=None)) -> None:
+    # No-op if the secret isn't configured (local-only dev use, matching how
+    # this app has run so far) — but once RELAY_SHARED_SECRET is set (e.g.
+    # before exposing this via a tunnel), every route below requires it.
+    expected = os.environ.get("RELAY_SHARED_SECRET")
+    if not expected:
+        return
+    if authorization != f"Bearer {expected}":
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
 
 async def _get_session() -> Session:
@@ -116,7 +128,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/holdings")
+@app.get("/holdings", dependencies=[Depends(_require_relay_auth)])
 async def get_holdings():
     try:
         session = await _get_session()
@@ -129,7 +141,29 @@ async def get_holdings():
     return [asdict(h) for h in holdings]
 
 
-@app.post("/sync-holdings")
+@app.get("/historical", dependencies=[Depends(_require_relay_auth)])
+async def get_historical(symbol: str, interval: str, from_date: str, to_date: str):
+    try:
+        cached = await asyncio.to_thread(get_cached_range, symbol, interval, from_date, to_date)
+        if covers_range(cached, from_date, to_date):
+            return {"symbol": symbol, "interval": interval, "candles": cached, "source": "cache"}
+
+        session = await _get_session()
+        candles = await adapter.get_historical_data(
+            session, symbol, interval, f"{from_date} 09:15", f"{to_date} 15:30"
+        )
+        await asyncio.to_thread(upsert_candles, symbol, interval, candles)
+        # Re-read from the cache table rather than the raw adapter response so
+        # the shape returned is identical whether this hit cache or Angel One.
+        rows = await asyncio.to_thread(get_cached_range, symbol, interval, from_date, to_date)
+        return {"symbol": symbol, "interval": interval, "candles": rows, "source": "angel_one"}
+    except BrokerAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except BrokerAPIError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/sync-holdings", dependencies=[Depends(_require_relay_auth)])
 async def sync_holdings_endpoint():
     try:
         session = await _get_session()

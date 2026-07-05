@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 
-from app.broker.types import Holding, OrderRequest, OrderResult, OrderStatus, Session
+from app.broker.types import Candle, Holding, OrderRequest, OrderResult, OrderStatus, Session
 
 
 class BrokerAdapter(ABC):
@@ -27,3 +27,8 @@ class BrokerAdapter(ABC):
 
     @abstractmethod
     def subscribe_live_prices(self, session: Session, symbols: list[str], on_tick: Callable) -> None: ...
+
+    @abstractmethod
+    async def get_historical_data(
+        self, session: Session, symbol: str, interval: str, from_date: str, to_date: str
+    ) -> list[Candle]: ...
