@@ -181,19 +181,111 @@ body {
   opacity: 0;
 }
 
+/* ------------------------------------------------------------- voice orb --
+   Four distinct states, each a different animation character rather than
+   just a color swap — idle breathes, listening pulses fast, thinking spins
+   a gradient ring, speaking pulses rhythmically. */
+@keyframes orb-idle-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes orb-listening-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.22);
+  }
+}
+
+@keyframes orb-thinking-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orb-speaking-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.1);
+  }
+  50% {
+    transform: scale(0.96);
+  }
+  75% {
+    transform: scale(1.12);
+  }
+}
+
+.orb-glow-idle {
+  background: radial-gradient(circle, rgba(201, 162, 39, 0.55), transparent 70%);
+  animation: orb-idle-breathe 3.2s ease-in-out infinite;
+}
+
+.orb-glow-listening {
+  background: radial-gradient(circle, rgba(47, 168, 141, 0.7), transparent 70%);
+  animation: orb-listening-pulse 0.85s ease-in-out infinite;
+}
+
+.orb-glow-thinking {
+  background: conic-gradient(
+    from 0deg,
+    rgba(201, 162, 39, 0.75),
+    transparent 30%,
+    rgba(201, 162, 39, 0.75) 60%,
+    transparent 90%
+  );
+  animation: orb-thinking-spin 1s linear infinite;
+}
+
+.orb-glow-speaking {
+  background: radial-gradient(circle, rgba(240, 217, 140, 0.65), transparent 70%);
+  animation: orb-speaking-pulse 0.55s ease-in-out infinite;
+}
+
 /* -------------------------------------------------- reduced motion -------
-   Ambient drift, border sweep, glow pulse, and blur-resolve all collapse to
-   static/instant equivalents. */
+   Ambient drift, border sweep, glow pulse, blur-resolve, and orb animations
+   all collapse to static/instant equivalents. */
 @media (prefers-reduced-motion: reduce) {
   .aurora-a,
   .aurora-b,
   .aurora-c,
   .glass-panel::before,
-  .live-glow {
+  .live-glow,
+  .orb-glow-idle,
+  .orb-glow-listening,
+  .orb-glow-thinking,
+  .orb-glow-speaking {
     animation: none;
   }
   .live-glow {
     opacity: 0.45;
+  }
+  .orb-glow-idle {
+    opacity: 0.55;
+  }
+  .orb-glow-listening {
+    opacity: 0.9;
+  }
+  .orb-glow-thinking {
+    opacity: 0.75;
+  }
+  .orb-glow-speaking {
+    opacity: 0.7;
   }
   .blur-resolve {
     transition: none;

@@ -45,6 +45,28 @@ export async function findOrCreateAsset(
   return { id: created.id, created: true };
 }
 
+// Reduces the lot for a sale of a non-stock asset — the sell-side mirror of
+// upsertLotForPurchase. Same one-lot-per-asset simplification: quantity is
+// decremented (floored at 0) rather than tracking which specific lot was
+// sold, since real per-lot FIFO matching is a tax-engine concern, not built
+// yet. A fully-sold asset (quantity 0) is filtered out of holdings display
+// in _shared/holdings.ts rather than deleted here, so a later re-purchase of
+// the same name re-uses the asset row.
+export async function reduceLotForSale(supabase: AdminClient, assetId: string, quantity: number): Promise<void> {
+  const { data: existingLot, error: findError } = await supabase
+    .from("lots")
+    .select("id, quantity")
+    .eq("asset_id", assetId)
+    .limit(1);
+  if (findError) throw new Error(findError.message);
+  if (!existingLot || existingLot.length === 0) return;
+
+  const lot = existingLot[0];
+  const newQuantity = Math.max(0, Number(lot.quantity) - quantity);
+  const { error: updateError } = await supabase.from("lots").update({ quantity: newQuantity }).eq("id", lot.id);
+  if (updateError) throw new Error(updateError.message);
+}
+
 // One lot per asset, same simplification as the relay's holdings sync — real
 // per-trade FIFO lots are a tax-engine (build-order step 8) concern.
 export async function upsertLotForPurchase(

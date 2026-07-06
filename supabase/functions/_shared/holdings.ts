@@ -96,18 +96,24 @@ export async function valuateAssets(
     });
   }
 
-  const holdingRows: HoldingRow[] = assets.map((asset) => {
-    const lot = lotsByAsset.get(asset.id) ?? { quantity: 0, invested: 0 };
-    return {
-      asset_id: asset.id,
-      symbol: asset.symbol,
-      name: asset.name,
-      asset_class: asset.asset_class,
-      quantity: lot.quantity,
-      invested_value: lot.invested,
-      manual_current_value: asset.manual_current_value !== null ? Number(asset.manual_current_value) : null,
-    };
-  });
+  // Fully-sold assets (all lots reduced to 0 by a sell) are dropped rather
+  // than shown at their old value — real_estate/other valuation ignores
+  // quantity entirely (it values off manual_current_value), so without this
+  // filter a sold house/car would keep showing at full value forever.
+  const holdingRows: HoldingRow[] = assets
+    .map((asset) => {
+      const lot = lotsByAsset.get(asset.id) ?? { quantity: 0, invested: 0 };
+      return {
+        asset_id: asset.id,
+        symbol: asset.symbol,
+        name: asset.name,
+        asset_class: asset.asset_class,
+        quantity: lot.quantity,
+        invested_value: lot.invested,
+        manual_current_value: asset.manual_current_value !== null ? Number(asset.manual_current_value) : null,
+      };
+    })
+    .filter((holding) => holding.quantity > 0);
 
   const valuations = await Promise.all(
     holdingRows.map((holding) => getValuationStrategy(holding.asset_class, latestPrices).valuate(holding)),

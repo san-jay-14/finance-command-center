@@ -56,11 +56,25 @@ export type HandleMessageResponse =
   | { tool: 'check_affordability'; message: string; result: Record<string, unknown> }
   | { tool: 'run_backtest'; message: string; result: Record<string, unknown> }
   | { tool: 'show_price_chart'; message: string; result: Record<string, unknown> }
+  | { tool: 'close_window'; message: string; titles: string[] }
+  | { tool: 'close_all_windows'; message: string }
   | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
   | { tool: null; message: string }
 
-export function sendMessage(message: string, userId: string): Promise<HandleMessageResponse> {
-  return callFunction<HandleMessageResponse>('handle-message', { message, user_id: userId })
+// openWindowTitles gives Claude the real, current list of open window titles
+// so "close the asset distribution" / "close all" can resolve against what's
+// actually on screen right now (window state is frontend-only/session-only,
+// the backend has no other way to know it).
+export function sendMessage(
+  message: string,
+  userId: string,
+  openWindowTitles: string[] = [],
+): Promise<HandleMessageResponse> {
+  return callFunction<HandleMessageResponse>('handle-message', {
+    message,
+    user_id: userId,
+    open_window_titles: openWindowTitles,
+  })
 }
 
 export type DashboardActivity = {

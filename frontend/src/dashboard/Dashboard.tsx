@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
-import { useLivePrices } from '../hooks/useLivePrices'
+import type { LivePrices } from '../hooks/useLivePrices'
 import { fetchDashboard, fetchNetWorth } from '../lib/api'
 import { ActivityColumn } from './ActivityColumn'
 import { AuroraBackground } from './AuroraBackground'
@@ -16,10 +16,16 @@ const USER_ID = import.meta.env.VITE_USER_ID
 // from fighting over what's authoritative.
 const REFETCH_MS = 30_000
 
+type DashboardProps = {
+  livePrices: LivePrices
+}
+
 // Fixed 100vh instrument panel (no scrolling anywhere, hard constraint):
 // header strip ~12vh, income/EMI strip ~6vh, three equal columns fill the
 // rest. Columns self-truncate via row capping instead of ever overflowing.
-export function Dashboard() {
+// livePrices is lifted to App.tsx so the dashboard and the floating windows
+// share one Realtime subscription instead of each opening its own.
+export function Dashboard({ livePrices }: DashboardProps) {
   const { data: netWorth } = useQuery({
     queryKey: ['net-worth'],
     queryFn: fetchNetWorth,
@@ -30,7 +36,6 @@ export function Dashboard() {
     queryFn: () => fetchDashboard(USER_ID),
     refetchInterval: REFETCH_MS,
   })
-  const livePrices = useLivePrices()
 
   // Overlay live ticks onto the fetched snapshot: stock rows re-value from
   // the latest LTP, and day change re-derives against the same previous

@@ -8,6 +8,7 @@ import {
   DEFAULT_ASSET_NAMES,
   findExistingAsset,
   findOrCreateAsset,
+  reduceLotForSale,
   symbolForAsset,
   upsertLotForPurchase,
 } from "../_shared/assets.ts";
@@ -15,8 +16,13 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { advanceDate, today } from "../_shared/dates.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
 
-function buildSystemPrompt(todayStr: string): string {
-  return `You are the intent router for a personal finance assistant. Today's date is ${todayStr}. Given the user's message, call exactly one tool:
+function buildSystemPrompt(todayStr: string, openWindowTitles: string[]): string {
+  const openWindowsLine =
+    openWindowTitles.length > 0
+      ? `Currently open windows on screen (exact titles): ${openWindowTitles.map((t) => `"${t}"`).join(", ")}.`
+      : "There are currently no windows open on screen.";
+
+  return `You are the intent router for a personal finance assistant. Today's date is ${todayStr}. ${openWindowsLine} Given the user's message, call exactly one tool:
 
 - log_transaction: the user is stating they bought or sold something and gave enough detail to log it (asset class, action, and quantity at minimum). Estimate "amount" (total transaction value) from what they said if possible. For gold/real_estate/other/mutual_fund, include asset_name — a short label for what was bought (e.g. "flat", "car", "Gold"). For mutual funds, include scheme_code if the user gives one (an MFAPI.in scheme code); if they don't, omit it — a NAV can't be looked up without it.
 - update_asset_value: the user is stating a NEW current worth for something they already own (e.g. "my flat is now worth 55 lakh") — this revises a stored estimate, it is not a new purchase. Only valid for real_estate and other.
@@ -26,6 +32,8 @@ function buildSystemPrompt(todayStr: string): string {
 - run_backtest: the user is asking a hypothetical "what if I had invested X" question (e.g. "if I had invested 5000 rupees monthly in TSLA for the last year, what would it be worth now", "if I had put 50000 rupees in NVDA a year ago"). Resolve the natural-language timeframe into concrete from_date/to_date (ISO yyyy-mm-dd) yourself using today's date above. "every month"/"monthly"/"SIP" language means strategy_type='monthly_sip'; a single one-time amount means strategy_type='lump_sum'. Only these two strategies exist — don't invent others.
 - show_price_chart: the user just wants to see a symbol's real price history, e.g. "show me TSLA's chart", "how has NVDA been doing this month" — NOT an investment simulation (that's run_backtest) and NOT a two-symbol comparison (that's render_ui's comparison_chart). Resolve the timeframe into concrete from_date/to_date yourself; if no timeframe is mentioned, default to the last 3 months.
 - render_ui: the user is asking a question best answered with a chart or visualization rather than a text answer.
+- close_window: the user wants to close one or more specific open windows (e.g. "close the asset distribution", "close that chart"). Match their words against the exact open window titles listed above and pass back only the exact titles that match — if several open windows plausibly match what they said, include all of them. Never invent a title that isn't in the open list.
+- close_all_windows: the user wants to close everything currently open (e.g. "close all", "close everything").
 - ask_clarification: a required detail is genuinely missing or ambiguous (e.g. "sell some TSLA" doesn't say how many shares). Ask one short, specific question.
 
 Do not discuss broker order execution or taxes — the tax engine isn't implemented yet. Just route the intent.`;
@@ -175,6 +183,30 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "close_window",
+    description:
+      "Close one or more currently open windows by exact title, e.g. 'close the asset distribution'. Pass back the exact title string(s) from the open-windows list given in the system prompt — never a title that isn't currently open.",
+    input_schema: {
+      type: "object",
+      properties: {
+        titles: {
+          type: "array",
+          items: { type: "string" },
+          description: "Exact title(s), copied verbatim from the currently-open-windows list, to close.",
+        },
+      },
+      required: ["titles"],
+    },
+  },
+  {
+    name: "close_all_windows",
+    description: "Close every currently open window, e.g. 'close all' or 'close everything'.",
+    input_schema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
     name: "ask_clarification",
     description:
       "Ask the user a short clarifying question when their command is ambiguous instead of guessing a missing required detail.",
@@ -196,14 +228,14 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Use POST" }, 405);
   }
 
-  let body: { message?: string; user_id?: string };
+  let body: { message?: string; user_id?: string; open_window_titles?: string[] };
   try {
     body = await req.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { message, user_id } = body;
+  const { message, user_id, open_window_titles: openWindowTitles = [] } = body;
   if (!message || !user_id) {
     return json({ error: "message and user_id are required" }, 400);
   }
@@ -243,7 +275,7 @@ Deno.serve(async (req: Request) => {
     model: "claude-opus-4-8",
     max_tokens: 2048,
     thinking: { type: "adaptive" },
-    system: buildSystemPrompt(today()),
+    system: buildSystemPrompt(today(), openWindowTitles),
     tools: TOOLS,
     messages: [{ role: "user", content: userContent }],
   });
@@ -277,11 +309,11 @@ Deno.serve(async (req: Request) => {
       const schemeCode = input.scheme_code as string | undefined;
 
       let assetId: string | null = null;
+      let sellNote = "";
 
       // Stock assets are created/synced by the relay service, not here (see
-      // relay-service/app/holdings_sync.py) — unchanged from the previous step.
-      // "sell" against these classes isn't handled yet (out of scope for this
-      // step); it still logs a transaction row, just without asset linkage.
+      // relay-service/app/holdings_sync.py) — "sell" against stocks happens
+      // via the real broker, not this manual path.
       if (assetClass !== "stock" && (action === "buy" || action === "manual_entry")) {
         try {
           const symbol = symbolForAsset(assetClass, schemeCode);
@@ -291,6 +323,19 @@ Deno.serve(async (req: Request) => {
             await supabase.from("assets").update({ manual_current_value: amount }).eq("id", asset.id);
           }
           await upsertLotForPurchase(supabase, assetId, quantity, amount);
+        } catch (err) {
+          return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+        }
+      } else if (assetClass !== "stock" && action === "sell") {
+        try {
+          const symbol = symbolForAsset(assetClass, schemeCode);
+          const existingId = await findExistingAsset(supabase, user_id, assetClass, assetName, symbol);
+          if (existingId) {
+            assetId = existingId;
+            await reduceLotForSale(supabase, existingId, quantity);
+          } else {
+            sellNote = ` (no matching ${assetName} holding found — logged without linking it to an asset)`;
+          }
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : String(err) }, 500);
         }
@@ -304,7 +349,7 @@ Deno.serve(async (req: Request) => {
       if (error) return json({ error: error.message }, 500);
       return json({
         tool: "log_transaction",
-        message: `Logged: ${action} ${quantity} ${assetName} (${assetClass}), amount ~${amount}.`,
+        message: `Logged: ${action} ${quantity} ${assetName} (${assetClass}), amount ~${amount}.${sellNote}`,
         transaction: data,
       });
     }
@@ -547,6 +592,17 @@ Deno.serve(async (req: Request) => {
     }
     case "render_ui": {
       return json({ tool: "render_ui", component: input.component, data: input.data });
+    }
+    case "close_window": {
+      const titles = (input.titles as string[] | undefined) ?? [];
+      return json({
+        tool: "close_window",
+        message: titles.length > 0 ? `Closed ${titles.length} window${titles.length === 1 ? "" : "s"}.` : "I couldn't find a matching open window.",
+        titles,
+      });
+    }
+    case "close_all_windows": {
+      return json({ tool: "close_all_windows", message: "Closing everything." });
     }
     case "ask_clarification": {
       const { data, error } = await supabase
