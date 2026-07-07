@@ -19,12 +19,12 @@ type DashboardProps = {
   livePrices: LivePrices
 }
 
-// Light-theme redesign: a normal scrolling page (not the old fixed 100vh
-// panel) — a purple net-worth hero + orb dial pinned at the top, price
-// history, and three distinct holdings groups (stocks / mutual funds /
-// other) below. livePrices is lifted to App.tsx so the dashboard and the
-// floating windows share one Realtime subscription instead of each opening
-// its own.
+// Fixed 100vh instrument panel (no page scrolling) — a purple net-worth hero
+// + orb dial pinned at the top, price history, and three distinct holdings
+// groups (stocks / mutual funds / other) below; only HoldingsTabsCard's list
+// scrolls internally. livePrices is lifted to App.tsx so the dashboard and
+// the floating windows share one Realtime subscription instead of each
+// opening its own.
 export function Dashboard({ livePrices }: DashboardProps) {
   const { data: netWorth } = useQuery({
     queryKey: ['net-worth'],
@@ -81,8 +81,8 @@ export function Dashboard({ livePrices }: DashboardProps) {
   const profile = dash?.profile
 
   return (
-    <div className="min-h-screen bg-page font-body text-ink">
-      <div className="sticky top-0 z-30">
+    <div className="flex h-screen flex-col overflow-hidden bg-page font-body text-ink">
+      <div className="shrink-0">
         <NetWorthCard
           totalValue={live?.totalValue ?? null}
           dayChangeValue={live?.dayChangeValue ?? null}
@@ -90,7 +90,7 @@ export function Dashboard({ livePrices }: DashboardProps) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 px-6 pt-3 pb-8 lg:grid-cols-[3fr_2fr]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden px-6 pt-3 pb-6 lg:grid-cols-[3fr_2fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <UpcomingCard upcoming={dash?.upcoming ?? []} />

@@ -21,7 +21,7 @@ export function NetWorthCard({ totalValue, dayChangeValue, dayChangePct }: NetWo
         <div className="mt-1 font-display text-5xl font-semibold tracking-tight text-white">
           <LiveNumber value={totalValue !== null ? money(totalValue) : '—'} />
         </div>
-        <div className={`font-numeric mt-2 text-sm font-medium ${dayUp ? 'text-white' : 'text-white/80'}`}>
+        <div className={`font-numeric mt-2 text-sm font-medium ${dayUp ? 'gain-text' : 'loss-text'}`}>
           {dayChangeValue !== null && dayChangePct !== null ? (
             <LiveNumber
               value={`${dayUp ? '▲' : '▼'} ${money(Math.abs(dayChangeValue))} (${Math.abs(dayChangePct).toFixed(2)}%) today`}

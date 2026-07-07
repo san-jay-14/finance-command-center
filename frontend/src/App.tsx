@@ -101,7 +101,7 @@ function App() {
 
   return (
     <>
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" richColors theme="dark" />
       <Dashboard livePrices={livePrices} />
       <WindowsLayer livePrices={livePrices} />
       <VoiceOrb onSubmit={handleSend} pending={pending} speaking={speaking} />

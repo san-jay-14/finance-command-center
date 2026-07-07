@@ -16,10 +16,16 @@ export function OrbCard() {
     if (!el) return
     const update = () => setOrbHomeRect(el.getBoundingClientRect())
     update()
+    // ResizeObserver only fires when this element's own box size changes —
+    // it stays silent when a viewport resize/reflow shifts the slot's
+    // *position* without changing its size, which left the cached rect (and
+    // therefore the orb) stuck at a stale spot. Window resize covers that.
     const observer = new ResizeObserver(update)
     observer.observe(el)
+    window.addEventListener('resize', update)
     return () => {
       observer.disconnect()
+      window.removeEventListener('resize', update)
       setOrbHomeRect(null)
     }
   }, [])

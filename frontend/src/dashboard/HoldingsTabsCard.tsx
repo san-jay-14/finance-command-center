@@ -46,7 +46,7 @@ export function HoldingsTabsCard({ holdings }: { holdings: NetWorthHolding[] }) 
       {sorted.length === 0 ? (
         <div className="flex h-12 items-center text-sm text-ink-faint">{EMPTY_LABELS[tab]}</div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col divide-y divide-border-soft overflow-y-auto">
+        <div className="no-scrollbar flex min-h-0 flex-1 flex-col divide-y divide-border-soft overflow-y-auto">
           {sorted.map((h) => {
             const dayPct = h.day_change_pct
             const dayUp = (dayPct ?? 0) >= 0

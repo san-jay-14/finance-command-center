@@ -15,7 +15,7 @@ export function MonthlyCommitmentsCard({ existingEmis, recurringCommitments, foi
   const limitPct = foirLimit !== null ? foirLimit * 100 : 40
 
   return (
-    <section className="card flex min-h-0 flex-col p-5">
+    <section className="card flex min-h-0 flex-1 flex-col p-5">
       <h2 className="mb-3 shrink-0 text-[11px] font-semibold tracking-[0.18em] text-ink-soft uppercase">Monthly Commitments</h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>

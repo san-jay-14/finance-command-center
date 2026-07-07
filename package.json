@@ -6,7 +6,7 @@
   "scripts": {
     "dev:frontend": "npm --prefix frontend run dev",
     "build:frontend": "npm --prefix frontend run build",
-    "dev:relay": "cd relay-service && venv/Scripts/python -m uvicorn app.main:app --reload --port 8000",
+    "dev:relay": "cd relay-service && venv\\Scripts\\python -m uvicorn app.main:app --reload --port 8000",
     "supabase:start": "npx supabase start --workdir supabase",
     "supabase:db-push": "npx supabase db push --workdir supabase"
   }

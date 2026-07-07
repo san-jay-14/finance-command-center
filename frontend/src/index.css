@@ -80,6 +80,17 @@ body {
   color: var(--color-gold);
 }
 
+/* --------------------------------------------------------- no-scrollbar --
+   Scrollable but scrollbar-free — used where an internal list scrolls
+   inside a card and a visible track would look like chrome. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ------------------------------------------------------------- live glow --
    Soft breathing radial glow behind live figures on the purple hero card. */
 @keyframes glow-breathe {
