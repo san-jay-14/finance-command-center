@@ -29,7 +29,7 @@ export function Window({ entry, livePrices }: { entry: WindowEntry; livePrices: 
       }
     >
       <motion.div
-        className="glass-panel flex h-full w-full flex-col overflow-hidden"
+        className="card flex h-full w-full flex-col overflow-hidden"
         style={{ transformOrigin: entry.transformOrigin }}
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -37,13 +37,13 @@ export function Window({ entry, livePrices }: { entry: WindowEntry; livePrices: 
         transition={{ duration: 0.22, ease: 'easeOut' }}
         onMouseDownCapture={() => bringToFront(entry.id)}
       >
-        <div className="window-drag-handle flex shrink-0 cursor-move items-center justify-between border-b border-white/5 px-3 py-2">
-          <span className="truncate text-xs font-medium uppercase tracking-wider text-parchment/70">{entry.title}</span>
+        <div className="window-drag-handle flex shrink-0 cursor-move items-center justify-between border-b border-border-soft px-3 py-2">
+          <span className="truncate text-xs font-medium tracking-wider text-ink-soft uppercase">{entry.title}</span>
           <button
             type="button"
             onClick={() => closeWindow(entry.id)}
             aria-label={`Close ${entry.title}`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-parchment/50 hover:bg-white/10 hover:text-parchment"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-ink-faint hover:bg-page hover:text-ink"
           >
             ×
           </button>
@@ -52,7 +52,7 @@ export function Window({ entry, livePrices }: { entry: WindowEntry; livePrices: 
           {Component ? (
             <Component data={entry.data} livePrices={livePrices} />
           ) : (
-            <div className="p-6 text-sm text-parchment/40">Unknown component: {entry.componentType}</div>
+            <div className="p-6 text-sm text-ink-faint">Unknown component: {entry.componentType}</div>
           )}
         </div>
       </motion.div>

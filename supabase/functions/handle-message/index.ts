@@ -14,7 +14,10 @@ import {
 } from "../_shared/assets.ts";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { advanceDate, today } from "../_shared/dates.ts";
+import { broadcastRealtime } from "../_shared/realtimeBroadcast.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
+
+const TRANSACTIONS_TOPIC = "transactions";
 
 function buildSystemPrompt(todayStr: string, openWindowTitles: string[]): string {
   const openWindowsLine =
@@ -34,6 +37,7 @@ function buildSystemPrompt(todayStr: string, openWindowTitles: string[]): string
 - render_ui: the user is asking a question best answered with a chart or visualization rather than a text answer.
 - close_window: the user wants to close one or more specific open windows (e.g. "close the asset distribution", "close that chart"). Match their words against the exact open window titles listed above and pass back only the exact titles that match — if several open windows plausibly match what they said, include all of them. Never invent a title that isn't in the open list.
 - close_all_windows: the user wants to close everything currently open (e.g. "close all", "close everything").
+- show_activity_history: the user wants to see their full transaction/activity history (e.g. "show my activity history", "what have I bought recently").
 - ask_clarification: a required detail is genuinely missing or ambiguous (e.g. "sell some TSLA" doesn't say how many shares). Ask one short, specific question.
 
 Do not discuss broker order execution or taxes — the tax engine isn't implemented yet. Just route the intent.`;
@@ -207,6 +211,14 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "show_activity_history",
+    description: "Show the user's full transaction/activity history in a window, e.g. 'show my activity history'.",
+    input_schema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
     name: "ask_clarification",
     description:
       "Ask the user a short clarifying question when their command is ambiguous instead of guessing a missing required detail.",
@@ -347,6 +359,15 @@ Deno.serve(async (req: Request) => {
         .select()
         .single();
       if (error) return json({ error: error.message }, 500);
+
+      await broadcastRealtime(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        TRANSACTIONS_TOPIC,
+        "new",
+        { action, quantity, amount, asset_name: assetName, asset_class: assetClass, source: "manual" },
+      );
+
       return json({
         tool: "log_transaction",
         message: `Logged: ${action} ${quantity} ${assetName} (${assetClass}), amount ~${amount}.${sellNote}`,
@@ -603,6 +624,35 @@ Deno.serve(async (req: Request) => {
     }
     case "close_all_windows": {
       return json({ tool: "close_all_windows", message: "Closing everything." });
+    }
+    case "show_activity_history": {
+      // Same shape as get-dashboard's activity list, just a higher limit —
+      // this is the source for the full-history floating window now that
+      // the permanent activity column is gone in favor of toast + on-demand.
+      const { data: transactions, error: txnError } = await supabase
+        .from("transactions")
+        .select("id, action, quantity, amount, source, created_at, assets(name, asset_class, symbol)")
+        .eq("user_id", user_id)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (txnError) return json({ error: txnError.message }, 500);
+
+      const activity = (transactions ?? []).map((t) => {
+        const asset = t.assets as { name?: string; asset_class?: string; symbol?: string } | null;
+        return {
+          id: t.id,
+          action: t.action,
+          quantity: t.quantity !== null ? Number(t.quantity) : null,
+          amount: Number(t.amount),
+          source: t.source,
+          created_at: t.created_at,
+          asset_name: asset?.name ?? null,
+          asset_class: asset?.asset_class ?? null,
+          symbol: asset?.symbol ?? null,
+        };
+      });
+
+      return json({ tool: "show_activity_history", message: "Here's your activity history.", activity });
     }
     case "ask_clarification": {
       const { data, error } = await supabase

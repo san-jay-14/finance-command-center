@@ -2,12 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import type { LivePrices } from '../hooks/useLivePrices'
 import { fetchDashboard, fetchNetWorth } from '../lib/api'
-import { ActivityColumn } from './ActivityColumn'
-import { AuroraBackground } from './AuroraBackground'
-import { money } from './format'
-import { HoldingsColumn } from './HoldingsColumn'
-import { LiveNumber } from './LiveNumber'
-import { UpcomingColumn } from './UpcomingColumn'
+import { HoldingsTabsCard } from './HoldingsTabsCard'
+import { MonthlyCommitmentsCard } from './MonthlyCommitmentsCard'
+import { NetWorthCard } from './NetWorthCard'
+import { NetWorthTrendCard } from './NetWorthTrendCard'
+import { UpcomingCard } from './UpcomingCard'
 
 const USER_ID = import.meta.env.VITE_USER_ID
 // Live prices tick every second or so via the Realtime channel; re-polling
@@ -20,11 +19,12 @@ type DashboardProps = {
   livePrices: LivePrices
 }
 
-// Fixed 100vh instrument panel (no scrolling anywhere, hard constraint):
-// header strip ~12vh, income/EMI strip ~6vh, three equal columns fill the
-// rest. Columns self-truncate via row capping instead of ever overflowing.
-// livePrices is lifted to App.tsx so the dashboard and the floating windows
-// share one Realtime subscription instead of each opening its own.
+// Light-theme redesign: a normal scrolling page (not the old fixed 100vh
+// panel) — a purple net-worth hero + orb dial pinned at the top, price
+// history, and three distinct holdings groups (stocks / mutual funds /
+// other) below. livePrices is lifted to App.tsx so the dashboard and the
+// floating windows share one Realtime subscription instead of each opening
+// its own.
 export function Dashboard({ livePrices }: DashboardProps) {
   const { data: netWorth } = useQuery({
     queryKey: ['net-worth'],
@@ -77,60 +77,34 @@ export function Dashboard({ livePrices }: DashboardProps) {
     }
   }, [netWorth, livePrices])
 
-  const dayUp = (live?.dayChangeValue ?? 0) >= 0
+  const holdings = live?.holdings ?? []
   const profile = dash?.profile
-  const foirPct = profile?.foir_ratio !== null && profile?.foir_ratio !== undefined ? profile.foir_ratio * 100 : null
 
   return (
-    <div className="relative flex h-screen flex-col gap-3 overflow-hidden p-4 font-body text-parchment">
-      <AuroraBackground />
-
-      {/* -------------------------------------------------- header strip -- */}
-      <header className="glass-panel flex shrink-0 items-center justify-between px-7" style={{ flexBasis: '12vh' }}>
-        <div>
-          <div className="font-display text-2xl tracking-tight text-parchment">{profile?.name ?? '—'}</div>
-          {profile?.age != null && <div className="text-xs text-parchment/45">{profile.age} yrs</div>}
-        </div>
-        <div className="relative text-right">
-          <div className="live-glow" />
-          <div className="relative font-display text-4xl font-medium tracking-tight">
-            <LiveNumber className="gold-text" value={live ? money(live.totalValue) : '—'} />
-          </div>
-          <div className={`relative mt-0.5 font-numeric text-sm ${dayUp ? 'text-gain' : 'text-loss'}`}>
-            {live?.dayChangeValue !== null && live?.dayChangeValue !== undefined ? (
-              <LiveNumber
-                value={`${dayUp ? '▲' : '▼'} ${money(Math.abs(live.dayChangeValue))} (${Math.abs(live.dayChangePct ?? 0).toFixed(2)}%) today`}
-              />
-            ) : (
-              <span className="text-parchment/40">day change unavailable</span>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* ---------------------------------------------- income/EMI strip -- */}
-      <div className="glass-panel flex shrink-0 items-center gap-10 px-7" style={{ flexBasis: '6vh', minHeight: '3.25rem' }}>
-        <div className="flex items-baseline gap-2.5">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-parchment/45">Income</span>
-          <span className="font-numeric text-sm text-parchment">
-            {profile?.monthly_income !== null && profile?.monthly_income !== undefined ? money(profile.monthly_income) : '—'}
-            <span className="text-parchment/40">/mo</span>
-          </span>
-        </div>
-        <div className="flex items-baseline gap-2.5">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-parchment/45">EMI</span>
-          <span className="font-numeric text-sm text-parchment">
-            {profile ? money(profile.existing_emis) : '—'}
-            {foirPct !== null && <span className="text-parchment/40"> ({foirPct.toFixed(0)}% of income)</span>}
-          </span>
-        </div>
+    <div className="min-h-screen bg-page font-body text-ink">
+      <div className="sticky top-0 z-30">
+        <NetWorthCard
+          totalValue={live?.totalValue ?? null}
+          dayChangeValue={live?.dayChangeValue ?? null}
+          dayChangePct={live?.dayChangePct ?? null}
+        />
       </div>
 
-      {/* -------------------------------------------------- three columns -- */}
-      <div className="grid min-h-0 flex-1 grid-cols-3 gap-3">
-        <HoldingsColumn holdings={live?.holdings ?? []} />
-        <ActivityColumn activity={dash?.activity ?? []} />
-        <UpcomingColumn upcoming={dash?.upcoming ?? []} />
+      <div className="grid grid-cols-1 gap-3 px-6 pt-3 pb-8 lg:grid-cols-[3fr_2fr]">
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <UpcomingCard upcoming={dash?.upcoming ?? []} />
+            <NetWorthTrendCard history={netWorth?.history ?? []} />
+          </div>
+          <MonthlyCommitmentsCard
+            existingEmis={profile?.existing_emis ?? null}
+            recurringCommitments={profile?.foir_recurring_commitments ?? null}
+            foirRatio={profile?.foir_ratio ?? null}
+            foirLimit={profile?.foir_limit ?? null}
+          />
+        </div>
+
+        <HoldingsTabsCard holdings={holdings} />
       </div>
     </div>
   )

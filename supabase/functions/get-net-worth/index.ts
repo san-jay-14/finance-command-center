@@ -4,6 +4,9 @@
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
 import { valuateAssets } from "../_shared/holdings.ts";
+import { today } from "../_shared/dates.ts";
+
+const HISTORY_DAYS = 30;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -45,6 +48,19 @@ Deno.serve(async (req: Request) => {
     };
   });
 
+  // One row per day — repeated calls the same day just update today's total
+  // rather than spamming duplicate points, so the trend chart's history
+  // accumulates one real data point per day from here on.
+  const todayStr = today();
+  await supabase.from("net_worth_snapshots").upsert({ snapshot_date: todayStr, total_value: totalValue }, { onConflict: "snapshot_date" });
+
+  const { data: historyRows } = await supabase
+    .from("net_worth_snapshots")
+    .select("snapshot_date, total_value")
+    .order("snapshot_date", { ascending: true })
+    .limit(HISTORY_DAYS);
+  const history = (historyRows ?? []).map((r) => ({ date: r.snapshot_date, total_value: Number(r.total_value) }));
+
   // Day change only covers holdings with a broker-reported previous close
   // (stocks) — manual assets don't move intraday. Percentage is against the
   // start-of-day value of those same holdings, not the whole net worth.
@@ -55,5 +71,6 @@ Deno.serve(async (req: Request) => {
     day_change_pct: hasDayChange && prevTotal > 0 ? (dayChangeValue / prevTotal) * 100 : null,
     by_asset_class: byAssetClass,
     holdings,
+    history,
   });
 });

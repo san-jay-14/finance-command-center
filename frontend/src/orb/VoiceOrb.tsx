@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
+import type { AgentState } from '../components/ui/orb'
+import { Orb } from '../components/ui/orb'
 import { getSpeechRecognitionCtor, isSpeechRecognitionSupported } from '../lib/speech'
-import { ORB_BOTTOM_MARGIN, ORB_SIZE, useOrbOffset } from './useOrbOffset'
+import { ORB_SIZE, useOrbOffset } from './useOrbOffset'
 import { setOrbRect } from './orbRect'
 
 type OrbState = 'idle' | 'listening' | 'thinking' | 'speaking'
@@ -18,16 +20,20 @@ function isTypingTarget(el: Element | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable
 }
 
-const GLOW_CLASS: Record<OrbState, string> = {
-  idle: 'orb-glow-idle',
-  listening: 'orb-glow-listening',
-  thinking: 'orb-glow-thinking',
-  speaking: 'orb-glow-speaking',
+// The ElevenLabs Orb component's agentState only knows null/thinking/
+// listening/talking — "speaking" here maps to "talking".
+const AGENT_STATE: Record<OrbState, AgentState> = {
+  idle: null,
+  listening: 'listening',
+  thinking: 'thinking',
+  speaking: 'talking',
 }
 
+const ORB_COLORS: [string, string] = ['#c9bfff', '#7c5cfc']
+
 // Push-to-talk: hold spacebar to talk, release to send — not click-to-toggle.
-// Reuses the same SpeechRecognition + ElevenLabs pipeline the earlier
-// click-based VoiceInput used; only the trigger mechanism changes here.
+// Visual rendering is the real ElevenLabs Orb (Three.js); this component
+// owns the voice/state machine and the collision-aware fixed positioning.
 export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
   const [listening, setListening] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -41,7 +47,7 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
   const orbElRef = useRef<HTMLDivElement>(null)
   const supported = isSpeechRecognitionSupported()
 
-  const offset = useOrbOffset()
+  const position = useOrbOffset()
 
   // ---- SpeechRecognition setup — bound once, read latest via refs so it
   // never needs recreating (which would abort an in-progress session). ----
@@ -153,7 +159,7 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
   useEffect(() => {
     const el = orbElRef.current
     if (el) setOrbRect(el.getBoundingClientRect())
-  }, [offset])
+  }, [position])
 
   const state: OrbState = listening ? 'listening' : pending ? 'thinking' : speaking ? 'speaking' : 'idle'
 
@@ -162,31 +168,26 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
       ref={orbElRef}
       className="fixed"
       style={{
-        left: `calc(50% - ${ORB_SIZE / 2}px)`,
-        bottom: ORB_BOTTOM_MARGIN,
+        top: 0,
+        left: 0,
         width: ORB_SIZE,
         height: ORB_SIZE,
         zIndex: 100000,
       }}
-      animate={{ x: offset.x, y: offset.y }}
+      animate={{ x: position.x, y: position.y }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
     >
       {errorMessage && (
-        <div className="absolute bottom-full left-1/2 mb-2 w-56 -translate-x-1/2 rounded-lg bg-black/80 px-3 py-2 text-center text-[11px] text-loss shadow-lg">
+        <div className="card absolute top-full left-1/2 mt-2 w-56 -translate-x-1/2 px-3 py-2 text-center text-[11px] text-ink">
           {errorMessage}
         </div>
       )}
-      <div className={`absolute -inset-3 rounded-full blur-xl ${GLOW_CLASS[state]}`} />
       <div
-        className="relative flex h-full w-full items-center justify-center rounded-full border border-gold/30 bg-black/60 text-lg backdrop-blur-sm"
-        title={
-          !supported
-            ? "This browser doesn't support voice input"
-            : 'Hold spacebar to talk'
-        }
+        className="h-full w-full"
+        title={!supported ? "This browser doesn't support voice input" : 'Hold spacebar to talk'}
         aria-label={`Voice assistant: ${state}`}
       >
-        🎙️
+        <Orb agentState={AGENT_STATE[state]} colors={ORB_COLORS} className="h-full w-full" />
       </div>
     </motion.div>
   )

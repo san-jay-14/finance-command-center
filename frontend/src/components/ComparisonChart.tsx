@@ -35,12 +35,12 @@ export function ComparisonChart({ data, livePrices }: VizProps) {
   }, [symbols])
 
   if (symbols.length === 0) {
-    return <div className="p-6 text-sm text-neutral-400">No symbols to compare.</div>
+    return <div className="p-6 text-sm text-ink-faint">No symbols to compare.</div>
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 p-6">
-      <div className="text-sm text-neutral-500">
+    <div className="flex h-full flex-col gap-3 p-6 text-ink">
+      <div className="text-sm text-ink-soft">
         Comparing {symbols.join(' vs ')} · {range} (simulated — no historical price feed wired up yet)
       </div>
       <div className="flex gap-4 text-sm">
@@ -55,11 +55,11 @@ export function ComparisonChart({ data, livePrices }: VizProps) {
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
             <XAxis dataKey="index" tick={false} />
-            <YAxis />
-            <Tooltip />
-            <Legend />
+            <YAxis tick={{ fill: '#a9a6bc' }} />
+            <Tooltip contentStyle={{ background: '#1c1a26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#f1eff7' }} />
+            <Legend wrapperStyle={{ color: '#a9a6bc' }} />
             {symbols.map((s, i) => (
               <Line key={s} type="monotone" dataKey={s} stroke={COLORS[i % COLORS.length]} dot={false} strokeWidth={2} />
             ))}

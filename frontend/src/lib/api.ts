@@ -35,12 +35,15 @@ export type NetWorthHolding = {
   day_change_pct: number | null
 }
 
+export type NetWorthHistoryPoint = { date: string; total_value: number }
+
 export type NetWorthResponse = {
   total_value: number
   day_change_value: number | null
   day_change_pct: number | null
   by_asset_class: Record<string, number>
   holdings: NetWorthHolding[]
+  history: NetWorthHistoryPoint[]
 }
 
 export function fetchNetWorth(): Promise<NetWorthResponse> {
@@ -58,6 +61,7 @@ export type HandleMessageResponse =
   | { tool: 'show_price_chart'; message: string; result: Record<string, unknown> }
   | { tool: 'close_window'; message: string; titles: string[] }
   | { tool: 'close_all_windows'; message: string }
+  | { tool: 'show_activity_history'; message: string; activity: Record<string, unknown>[] }
   | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
   | { tool: null; message: string }
 

@@ -30,21 +30,21 @@ export function CandlestickChart({ data }: VizProps) {
     // ResizeObserver catches the real size once layout actually completes,
     // where a window-resize listener alone would miss it entirely.
     const chart = createChart(container, {
-      layout: { background: { type: ColorType.Solid, color: '#ffffff' }, textColor: '#525252' },
-      grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
+      layout: { background: { type: ColorType.Solid, color: '#1c1a26' }, textColor: '#a9a6bc' },
+      grid: { vertLines: { color: 'rgba(255,255,255,0.06)' }, horzLines: { color: 'rgba(255,255,255,0.06)' } },
       width: container.clientWidth || 600,
       height: 320,
-      timeScale: { borderColor: '#e5e5e5' },
-      rightPriceScale: { borderColor: '#e5e5e5' },
+      timeScale: { borderColor: 'rgba(255,255,255,0.08)' },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
     })
     chartRef.current = chart
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#059669',
-      downColor: '#dc2626',
+      upColor: '#34d399',
+      downColor: '#f87171',
       borderVisible: false,
-      wickUpColor: '#059669',
-      wickDownColor: '#dc2626',
+      wickUpColor: '#34d399',
+      wickDownColor: '#f87171',
     })
     series.setData(
       [...candles]
@@ -69,7 +69,7 @@ export function CandlestickChart({ data }: VizProps) {
   }, [candles])
 
   if (candles.length === 0) {
-    return <div className="p-6 text-sm text-neutral-400">No price history to show.</div>
+    return <div className="p-6 text-sm text-ink-faint">No price history to show.</div>
   }
 
   const first = candles[0]
@@ -80,8 +80,8 @@ export function CandlestickChart({ data }: VizProps) {
   return (
     <div className="flex h-full flex-col gap-3 p-6">
       <div className="flex items-baseline justify-between">
-        <div className="text-sm font-medium text-neutral-900">{symbol}</div>
-        <div className={`text-sm font-semibold ${isUp ? 'text-emerald-600' : 'text-red-600'}`}>
+        <div className="text-sm font-medium text-ink">{symbol}</div>
+        <div className={`text-sm font-semibold ${isUp ? 'gain-text' : 'loss-text'}`}>
           {isUp ? '+' : ''}
           {pctChange.toFixed(1)}%
         </div>

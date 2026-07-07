@@ -39,28 +39,28 @@ export function AssetDistributionPie(_props: VizProps) {
   }, [byAssetClass])
 
   if (error) {
-    return <div className="p-6 text-sm text-red-600">Couldn't load distribution: {error}</div>
+    return <div className="p-6 text-sm text-loss">Couldn't load distribution: {error}</div>
   }
   if (!byAssetClass) {
-    return <div className="p-6 text-sm text-neutral-400">Loading distribution…</div>
+    return <div className="p-6 text-sm text-ink-faint">Loading distribution…</div>
   }
   if (slices.length === 0) {
-    return <div className="p-6 text-sm text-neutral-400">No holdings to show yet.</div>
+    return <div className="p-6 text-sm text-ink-faint">No holdings to show yet.</div>
   }
 
   return (
-    <div className="flex h-full flex-col gap-2 p-6">
-      <div className="text-sm text-neutral-500">Net worth by asset class</div>
+    <div className="flex h-full flex-col gap-2 p-6 text-ink">
+      <div className="text-sm text-ink-soft">Net worth by asset class</div>
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={slices} dataKey="value" nameKey="name" outerRadius="80%" label>
+            <Pie data={slices} dataKey="value" nameKey="name" outerRadius="80%" label={{ fill: '#f1eff7' }}>
               {slices.map((slice) => (
                 <Cell key={slice.assetClass} fill={COLORS[slice.assetClass] ?? '#9ca3af'} />
               ))}
             </Pie>
-            <Tooltip />
-            <Legend />
+            <Tooltip contentStyle={{ background: '#1c1a26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#f1eff7' }} />
+            <Legend wrapperStyle={{ color: '#a9a6bc' }} />
           </PieChart>
         </ResponsiveContainer>
       </div>

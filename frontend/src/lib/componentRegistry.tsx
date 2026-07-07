@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react'
+import { ActivityHistoryCard } from '../components/ActivityHistoryCard'
 import { AffordabilityResultCard } from '../components/AffordabilityResultCard'
 import { AssetDistributionPie } from '../components/AssetDistributionPie'
 import { BacktestResultCard } from '../components/BacktestResultCard'
@@ -16,4 +17,5 @@ export const componentRegistry: Record<string, ComponentType<VizProps>> = {
   affordability_result: AffordabilityResultCard,
   backtest_result: BacktestResultCard,
   candlestick_chart: CandlestickChart,
+  activity_history: ActivityHistoryCard,
 }

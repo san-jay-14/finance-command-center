@@ -5,7 +5,10 @@ import { DEFAULT_ASSET_NAMES, findOrCreateAsset, symbolForAsset, upsertLotForPur
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { advanceDate, today } from "../_shared/dates.ts";
 import { valuateSingleAsset } from "../_shared/holdings.ts";
+import { broadcastRealtime } from "../_shared/realtimeBroadcast.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
+
+const TRANSACTIONS_TOPIC = "transactions";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -77,6 +80,21 @@ Deno.serve(async (req: Request) => {
         .select()
         .single();
       if (txnError) throw new Error(txnError.message);
+
+      await broadcastRealtime(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        TRANSACTIONS_TOPIC,
+        "new",
+        {
+          action: "buy",
+          quantity,
+          amount,
+          asset_name: info?.holding.name ?? DEFAULT_ASSET_NAMES[rule.asset_class] ?? rule.asset_class,
+          asset_class: rule.asset_class,
+          source: "system",
+        },
+      );
 
       results.push({
         rule_id: rule.id,
