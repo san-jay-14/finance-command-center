@@ -50,6 +50,35 @@ export function fetchNetWorth(): Promise<NetWorthResponse> {
   return callFunction<NetWorthResponse>('get-net-worth')
 }
 
+export type PriceHistoryCandle = {
+  candle_date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume?: number
+}
+
+export type PriceHistoryResponse = { symbol: string; candles: PriceHistoryCandle[] }
+
+// get-price-history is a plain GET (query params, not a JSON body) so it
+// doesn't go through callFunction — used by the comparison chart to pull
+// real closes per symbol instead of a synthetic series.
+export async function fetchPriceHistory(symbol: string, fromDate: string, toDate: string): Promise<PriceHistoryResponse> {
+  const params = new URLSearchParams({ symbol, from_date: fromDate, to_date: toDate })
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/get-price-history?${params}`, {
+    headers: {
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      apikey: SUPABASE_ANON_KEY,
+    },
+  })
+  if (!res.ok) {
+    const detail = await res.text()
+    throw new Error(`get-price-history failed (${res.status}): ${detail}`)
+  }
+  return res.json()
+}
+
 export type HandleMessageResponse =
   | { tool: 'render_ui'; component: string; data: Record<string, unknown> }
   | { tool: 'log_transaction'; message: string; transaction: unknown }
