@@ -69,11 +69,28 @@ export function Dashboard({ livePrices }: DashboardProps) {
       }
     }
     const prevTotal = totalValue - dayChangeValue
+
+    // Three-way split for the hero banner's fork diagram: stocks (the
+    // trading book), personal assets (real estate/misc — the flat, the car),
+    // and investments (mutual funds + gold — money parked for growth).
+    let stockValue = 0
+    let personalValue = 0
+    let investmentValue = 0
+    for (const h of holdings) {
+      const v = h.current_value ?? 0
+      if (h.asset_class === 'stock') stockValue += v
+      else if (h.asset_class === 'real_estate' || h.asset_class === 'other') personalValue += v
+      else if (h.asset_class === 'mutual_fund' || h.asset_class === 'gold') investmentValue += v
+    }
+
     return {
       holdings,
       totalValue,
       dayChangeValue: hasDayChange ? dayChangeValue : null,
       dayChangePct: hasDayChange && prevTotal > 0 ? (dayChangeValue / prevTotal) * 100 : null,
+      stockValue,
+      personalValue,
+      investmentValue,
     }
   }, [netWorth, livePrices])
 
@@ -81,12 +98,16 @@ export function Dashboard({ livePrices }: DashboardProps) {
   const profile = dash?.profile
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-page font-body text-ink">
-      <div className="shrink-0">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-page font-body text-ink">
+      <div className="page-texture" />
+      <div className="relative shrink-0">
         <NetWorthCard
           totalValue={live?.totalValue ?? null}
           dayChangeValue={live?.dayChangeValue ?? null}
           dayChangePct={live?.dayChangePct ?? null}
+          stockValue={live ? live.stockValue : null}
+          personalValue={live ? live.personalValue : null}
+          investmentValue={live ? live.investmentValue : null}
         />
       </div>
 

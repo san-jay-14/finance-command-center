@@ -16,6 +16,7 @@
   --color-gain: #34d399;
   --color-loss: #f87171;
   --color-gold: #d4af37;
+  --color-accent: #38bdf8;
 
   --font-display: "Space Grotesk Variable", "Space Grotesk", sans-serif;
   --font-body: "Inter Variable", "Inter", sans-serif;
@@ -34,14 +35,59 @@ body {
   color: var(--color-ink);
 }
 
+/* --------------------------------------------------------- page-texture --
+   Faint dot grid + drifting ambient glows behind the whole panel — reads as
+   an instrument console rather than a flat dark rectangle. Fixed so it
+   doesn't get clipped by the no-scroll layout's overflow-hidden panes. */
+.page-texture {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.page-texture::before,
+.page-texture::after {
+  content: '';
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.14;
+}
+.page-texture::before {
+  top: -18vw;
+  right: -12vw;
+  background: var(--color-primary-end);
+}
+.page-texture::after {
+  bottom: -22vw;
+  left: -14vw;
+  background: var(--color-accent);
+}
+
 /* ------------------------------------------------------------------ card --
    Dark elevated surface — a hairline border does the separation work a
-   drop shadow can't on a dark page background. */
+   drop shadow can't on a dark page background. Brightens gently on hover so
+   the panel reads as a live instrument rather than a flat printout. */
 .card {
+  position: relative;
   background: var(--color-card);
   border-radius: 1.25rem;
   border: 1px solid var(--color-border-soft);
   box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+.card:hover {
+  border-color: rgba(155, 124, 255, 0.35);
+  box-shadow:
+    0 12px 32px -16px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(155, 124, 255, 0.08),
+    0 8px 28px -14px rgba(124, 92, 252, 0.35);
 }
 
 /* ----------------------------------------------------------- card-purple --
@@ -78,6 +124,37 @@ body {
 }
 .gold-text-accent {
   color: var(--color-gold);
+}
+
+/* Sky accent, reserved for the "personal assets" leg of the net-worth split
+   — a second neutral-ish hue so the three legs read distinctly at a glance. */
+.accent-dot {
+  background: var(--color-accent);
+}
+
+/* --------------------------------------------------------- split-trace ---
+   The net-worth fork's branch lines "flow" via a marching dash offset, like
+   current on a circuit trace. */
+@keyframes trace-flow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+.split-trace {
+  animation: trace-flow 1.4s linear infinite;
+}
+
+/* ------------------------------------------------------------- foir-bar --
+   FOIR gauge fill — purple by default, shifts to the loss color once the
+   ratio clears its limit so the warning reads at a glance, not just in text. */
+.foir-bar {
+  background: linear-gradient(90deg, var(--color-primary-start), var(--color-primary-end));
+  box-shadow: 0 0 10px rgba(124, 92, 252, 0.55);
+  transition: width 600ms ease;
+}
+.foir-bar.foir-bar-over {
+  background: linear-gradient(90deg, #f87171, #fca5a5);
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.55);
 }
 
 /* --------------------------------------------------------- no-scrollbar --
@@ -137,5 +214,8 @@ body {
   }
   .blur-resolve {
     transition: none;
+  }
+  .split-trace {
+    animation: none;
   }
 }

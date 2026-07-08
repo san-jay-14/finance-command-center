@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import type { NetWorthHolding } from '../lib/api'
 import { money, quantityLabel } from './format'
+import { CoinIcon, LayersIcon, TrendUpIcon } from './icons'
 import { LiveNumber } from './LiveNumber'
 
 type TabKey = 'stock' | 'mutual_fund' | 'other'
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'stock', label: 'Stocks' },
-  { key: 'other', label: 'Other' },
-  { key: 'mutual_fund', label: 'MF' },
+const TABS: { key: TabKey; label: string; Icon: typeof TrendUpIcon }[] = [
+  { key: 'stock', label: 'Stocks', Icon: TrendUpIcon },
+  { key: 'other', label: 'Other', Icon: CoinIcon },
+  { key: 'mutual_fund', label: 'MF', Icon: LayersIcon },
 ]
 
 const EMPTY_LABELS: Record<TabKey, string> = {
@@ -31,15 +32,16 @@ export function HoldingsTabsCard({ holdings }: { holdings: NetWorthHolding[] }) 
   return (
     <section className="card flex h-full min-h-0 flex-col p-5">
       <div className="mb-3 flex shrink-0 gap-1">
-        {TABS.map((t) => (
+        {TABS.map(({ key, label, Icon }) => (
           <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold tracking-wide uppercase transition-colors ${
-              tab === t.key ? 'bg-gradient-to-br from-primary-start to-primary-end text-white' : 'text-ink-soft hover:bg-page'
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold tracking-wide uppercase transition-colors ${
+              tab === key ? 'bg-gradient-to-br from-primary-start to-primary-end text-white' : 'text-ink-soft hover:bg-page'
             }`}
           >
-            {t.label}
+            <Icon className="h-3.5 w-3.5" />
+            {label}
           </button>
         ))}
       </div>
