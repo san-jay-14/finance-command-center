@@ -1,3 +1,6 @@
+import { getDemoDashboard, getDemoNetWorth, getDemoPriceHistory, getDemoProactiveInsights } from './demoData'
+import type { Mode } from '../store/modeStore'
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
@@ -46,8 +49,16 @@ export type NetWorthResponse = {
   history: NetWorthHistoryPoint[]
 }
 
-export function fetchNetWorth(): Promise<NetWorthResponse> {
+function fetchNetWorthLive(): Promise<NetWorthResponse> {
   return callFunction<NetWorthResponse>('get-net-worth')
+}
+
+function fetchNetWorthDemo(): Promise<NetWorthResponse> {
+  return Promise.resolve(getDemoNetWorth())
+}
+
+export function fetchNetWorth(mode: Mode): Promise<NetWorthResponse> {
+  return mode === 'demo' ? fetchNetWorthDemo() : fetchNetWorthLive()
 }
 
 export type PriceHistoryCandle = {
@@ -64,7 +75,7 @@ export type PriceHistoryResponse = { symbol: string; candles: PriceHistoryCandle
 // get-price-history is a plain GET (query params, not a JSON body) so it
 // doesn't go through callFunction — used by the comparison chart to pull
 // real closes per symbol instead of a synthetic series.
-export async function fetchPriceHistory(symbol: string, fromDate: string, toDate: string): Promise<PriceHistoryResponse> {
+async function fetchPriceHistoryLive(symbol: string, fromDate: string, toDate: string): Promise<PriceHistoryResponse> {
   const params = new URLSearchParams({ symbol, from_date: fromDate, to_date: toDate })
   const res = await fetch(`${SUPABASE_URL}/functions/v1/get-price-history?${params}`, {
     headers: {
@@ -77,6 +88,19 @@ export async function fetchPriceHistory(symbol: string, fromDate: string, toDate
     throw new Error(`get-price-history failed (${res.status}): ${detail}`)
   }
   return res.json()
+}
+
+function fetchPriceHistoryDemo(symbol: string, fromDate: string, toDate: string): Promise<PriceHistoryResponse> {
+  return Promise.resolve(getDemoPriceHistory(symbol, fromDate, toDate))
+}
+
+export function fetchPriceHistory(
+  mode: Mode,
+  symbol: string,
+  fromDate: string,
+  toDate: string,
+): Promise<PriceHistoryResponse> {
+  return mode === 'demo' ? fetchPriceHistoryDemo(symbol, fromDate, toDate) : fetchPriceHistoryLive(symbol, fromDate, toDate)
 }
 
 export type HandleMessageResponse =
@@ -146,14 +170,30 @@ export type DashboardResponse = {
   upcoming: DashboardUpcoming[]
 }
 
-export function fetchDashboard(userId: string): Promise<DashboardResponse> {
+function fetchDashboardLive(userId: string): Promise<DashboardResponse> {
   return callFunction<DashboardResponse>('get-dashboard', { user_id: userId })
+}
+
+function fetchDashboardDemo(): Promise<DashboardResponse> {
+  return Promise.resolve(getDemoDashboard())
+}
+
+export function fetchDashboard(mode: Mode, userId: string): Promise<DashboardResponse> {
+  return mode === 'demo' ? fetchDashboardDemo() : fetchDashboardLive(userId)
 }
 
 export type ProactiveInsightsResponse = { insights: string[] }
 
-export function fetchProactiveInsights(userId: string): Promise<ProactiveInsightsResponse> {
+function fetchProactiveInsightsLive(userId: string): Promise<ProactiveInsightsResponse> {
   return callFunction<ProactiveInsightsResponse>('get-proactive-insights', { user_id: userId })
+}
+
+function fetchProactiveInsightsDemo(): Promise<ProactiveInsightsResponse> {
+  return Promise.resolve(getDemoProactiveInsights())
+}
+
+export function fetchProactiveInsights(mode: Mode, userId: string): Promise<ProactiveInsightsResponse> {
+  return mode === 'demo' ? fetchProactiveInsightsDemo() : fetchProactiveInsightsLive(userId)
 }
 
 export async function fetchSpeechAudio(text: string): Promise<Blob> {

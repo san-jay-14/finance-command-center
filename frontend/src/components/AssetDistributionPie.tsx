@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { fetchNetWorth } from '../lib/api'
 import type { VizProps } from '../lib/types'
+import { useModeStore } from '../store/modeStore'
 
 const COLORS: Record<string, string> = {
   stock: '#2563eb',
@@ -22,14 +23,15 @@ const LABELS: Record<string, string> = {
 // Real data across ALL asset classes now (build-order step 6) — each class
 // valued by its own strategy in supabase/functions/_shared/valuation.ts.
 export function AssetDistributionPie(_props: VizProps) {
+  const mode = useModeStore((s) => s.mode)
   const [byAssetClass, setByAssetClass] = useState<Record<string, number> | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchNetWorth()
+    fetchNetWorth(mode)
       .then((res) => setByAssetClass(res.by_asset_class))
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }, [])
+  }, [mode])
 
   const slices = useMemo(() => {
     if (!byAssetClass) return []

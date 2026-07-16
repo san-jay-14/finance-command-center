@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fetchPriceHistory } from '../lib/api'
 import type { VizProps } from '../lib/types'
+import { useModeStore } from '../store/modeStore'
 
 const COLORS = ['#2563eb', '#dc2626', '#059669', '#d97706']
 
@@ -30,6 +31,7 @@ function rangeToDates(range: string): { fromDate: string; toDate: string } {
 type ChartRow = { date: string; [symbol: string]: string | number }
 
 export function ComparisonChart({ data, livePrices }: VizProps) {
+  const mode = useModeStore((s) => s.mode)
   const symbols = (Array.isArray(data.symbols) ? data.symbols : []) as string[]
   const range = typeof data.range === 'string' ? data.range : '6M'
 
@@ -51,7 +53,7 @@ export function ComparisonChart({ data, livePrices }: VizProps) {
     async function load() {
       const byDate = new Map<string, ChartRow>()
       for (const symbol of symbols) {
-        const result = await fetchPriceHistory(symbol, fromDate, toDate)
+        const result = await fetchPriceHistory(mode, symbol, fromDate, toDate)
         if (cancelled) return
         for (const candle of result.candles) {
           const row = byDate.get(candle.candle_date) ?? { date: candle.candle_date }
@@ -70,7 +72,7 @@ export function ComparisonChart({ data, livePrices }: VizProps) {
     return () => {
       cancelled = true
     }
-  }, [symbols.join(','), range])
+  }, [symbols.join(','), range, mode])
 
   if (symbols.length === 0) {
     return <div className="p-6 text-sm text-ink-faint">No symbols to compare.</div>

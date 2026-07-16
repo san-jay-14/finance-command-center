@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import type { LivePrices } from '../hooks/useLivePrices'
 import { fetchDashboard, fetchNetWorth } from '../lib/api'
+import { useModeStore } from '../store/modeStore'
 import { HoldingsTabsCard } from './HoldingsTabsCard'
 import { MonthlyCommitmentsCard } from './MonthlyCommitmentsCard'
 import { NetWorthCard } from './NetWorthCard'
@@ -26,14 +27,15 @@ type DashboardProps = {
 // the floating windows share one Realtime subscription instead of each
 // opening its own.
 export function Dashboard({ livePrices }: DashboardProps) {
+  const mode = useModeStore((s) => s.mode)
   const { data: netWorth } = useQuery({
-    queryKey: ['net-worth'],
-    queryFn: fetchNetWorth,
+    queryKey: ['net-worth', mode],
+    queryFn: () => fetchNetWorth(mode),
     refetchInterval: REFETCH_MS,
   })
   const { data: dash } = useQuery({
-    queryKey: ['dashboard', USER_ID],
-    queryFn: () => fetchDashboard(USER_ID),
+    queryKey: ['dashboard', mode, USER_ID],
+    queryFn: () => fetchDashboard(mode, USER_ID),
     refetchInterval: REFETCH_MS,
   })
 
@@ -98,7 +100,7 @@ export function Dashboard({ livePrices }: DashboardProps) {
   const profile = dash?.profile
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-page font-body text-ink">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-page pt-11 font-body text-ink">
       <div className="page-texture" />
       <div className="relative shrink-0">
         <NetWorthCard

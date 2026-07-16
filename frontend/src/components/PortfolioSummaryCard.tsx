@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchNetWorth, type NetWorthHolding } from '../lib/api'
 import type { VizProps } from '../lib/types'
+import { useModeStore } from '../store/modeStore'
 
 // The render_ui spec's `data` field has nothing real to offer here — Claude
 // has no tool to fetch actual portfolio numbers, so this component fetches
 // get-net-worth itself and layers live ticks (via `livePrices`) on top.
 export function PortfolioSummaryCard({ livePrices }: VizProps) {
+  const mode = useModeStore((s) => s.mode)
   const [holdings, setHoldings] = useState<NetWorthHolding[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchNetWorth()
+    fetchNetWorth(mode)
       .then((res) => setHoldings(res.holdings.filter((h) => h.asset_class === 'stock')))
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }, [])
+  }, [mode])
 
   const enriched = useMemo(() => {
     if (!holdings) return []

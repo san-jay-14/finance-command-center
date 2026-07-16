@@ -3,9 +3,11 @@ import { Toaster } from 'sonner'
 import { Dashboard } from './dashboard/Dashboard'
 import { useLivePrices } from './hooks/useLivePrices'
 import { useTransactionToasts } from './hooks/useTransactionToasts'
+import { ModeBanner } from './components/ModeBanner'
 import { sendMessage, type HandleMessageResponse } from './lib/api'
 import { speak } from './lib/speech'
 import { VoiceOrb } from './orb/VoiceOrb'
+import { useModeStore } from './store/modeStore'
 import { useWindowsStore } from './store/windowsStore'
 import { WindowsLayer } from './windows/WindowsLayer'
 
@@ -26,7 +28,8 @@ function titleForComponent(component: string): string {
 function App() {
   const [pending, setPending] = useState(false)
   const [speaking, setSpeaking] = useState(false)
-  const livePrices = useLivePrices()
+  const mode = useModeStore((s) => s.mode)
+  const livePrices = useLivePrices(mode)
   const openWindow = useWindowsStore((s) => s.openWindow)
   const closeWindowsByTitles = useWindowsStore((s) => s.closeWindowsByTitles)
   const closeAll = useWindowsStore((s) => s.closeAll)
@@ -102,6 +105,7 @@ function App() {
   return (
     <>
       <Toaster position="top-right" richColors theme="dark" />
+      <ModeBanner />
       <Dashboard livePrices={livePrices} />
       <WindowsLayer livePrices={livePrices} />
       <VoiceOrb onSubmit={handleSend} pending={pending} speaking={speaking} />
