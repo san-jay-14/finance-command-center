@@ -28,6 +28,7 @@ export function useAuth() {
 
   return {
     user: session?.user ?? null,
+    accessToken: session?.access_token ?? null,
     loading,
     // shouldCreateUser defaults to true — any email can sign in, no separate
     // signup step. emailRedirectTo must be allow-listed in the Supabase

@@ -1,4 +1,5 @@
 import { getDemoDashboard, getDemoNetWorth, getDemoPriceHistory, getDemoProactiveInsights } from './demoData'
+import { supabase } from './supabaseClient'
 import type { Mode } from '../store/modeStore'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
@@ -49,8 +50,27 @@ export type NetWorthResponse = {
   history: NetWorthHistoryPoint[]
 }
 
-function fetchNetWorthLive(): Promise<NetWorthResponse> {
-  return callFunction<NetWorthResponse>('get-net-worth')
+// Live mode is only ever reached via a genuine connected broker session
+// (useModeSync derives mode from broker_sessions, not a one-time flag) —
+// so this always fetches the signed-in visitor's OWN holdings straight from
+// Angel One (get-net-worth-connected), never the old founder-hardcoded
+// get-net-worth endpoint. Reusing that endpoint here would show every
+// connected visitor the founder's own real portfolio, which is exactly the
+// leak this whole feature exists to prevent.
+async function fetchNetWorthLive(): Promise<NetWorthResponse> {
+  const { data } = await supabase.auth.getSession()
+  const accessToken = data.session?.access_token
+  if (!accessToken) {
+    throw new Error('fetchNetWorth (live): not signed in')
+  }
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/get-net-worth-connected`, {
+    headers: { Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY },
+  })
+  if (!res.ok) {
+    const detail = await res.text()
+    throw new Error(`get-net-worth-connected failed (${res.status}): ${detail}`)
+  }
+  return res.json()
 }
 
 function fetchNetWorthDemo(): Promise<NetWorthResponse> {
@@ -170,8 +190,29 @@ export type DashboardResponse = {
   upcoming: DashboardUpcoming[]
 }
 
-function fetchDashboardLive(userId: string): Promise<DashboardResponse> {
-  return callFunction<DashboardResponse>('get-dashboard', { user_id: userId })
+// financial_profile/recurring_rules/transactions are tied to one legacy
+// public.users row that predates Supabase Auth — a connected visitor has
+// none of that data, and there's no per-visitor equivalent (a much larger
+// project than this step). Calling the old founder-hardcoded get-dashboard
+// here would leak the founder's own income/EMI/activity to any visitor who
+// connects their own broker account, so an honest empty shape is the only
+// safe option — Upcoming/Monthly Commitments show their natural empty
+// states for live visitors.
+function fetchDashboardLive(): Promise<DashboardResponse> {
+  return Promise.resolve({
+    profile: {
+      name: null,
+      age: null,
+      monthly_income: null,
+      monthly_expenses: null,
+      existing_emis: 0,
+      foir_ratio: null,
+      foir_recurring_commitments: 0,
+      foir_limit: 0.4,
+    },
+    activity: [],
+    upcoming: [],
+  })
 }
 
 function fetchDashboardDemo(): Promise<DashboardResponse> {
@@ -179,7 +220,7 @@ function fetchDashboardDemo(): Promise<DashboardResponse> {
 }
 
 export function fetchDashboard(mode: Mode, userId: string): Promise<DashboardResponse> {
-  return mode === 'demo' ? fetchDashboardDemo() : fetchDashboardLive(userId)
+  return mode === 'demo' ? fetchDashboardDemo() : fetchDashboardLive()
 }
 
 export type ProactiveInsightsResponse = { insights: string[] }

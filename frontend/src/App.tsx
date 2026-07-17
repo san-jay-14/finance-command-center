@@ -4,6 +4,7 @@ import { Dashboard } from './dashboard/Dashboard'
 import { useLivePrices } from './hooks/useLivePrices'
 import { useTransactionToasts } from './hooks/useTransactionToasts'
 import { ModeBanner } from './components/ModeBanner'
+import { useModeSync } from './hooks/useModeSync'
 import { sendMessage, type HandleMessageResponse } from './lib/api'
 import { speak } from './lib/speech'
 import { VoiceOrb } from './orb/VoiceOrb'
@@ -28,6 +29,7 @@ function titleForComponent(component: string): string {
 function App() {
   const [pending, setPending] = useState(false)
   const [speaking, setSpeaking] = useState(false)
+  useModeSync()
   const mode = useModeStore((s) => s.mode)
   const livePrices = useLivePrices(mode)
   const openWindow = useWindowsStore((s) => s.openWindow)
