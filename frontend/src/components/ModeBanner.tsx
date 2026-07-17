@@ -25,15 +25,22 @@ export function ModeBanner() {
   const mode = useModeStore((s) => s.mode)
   const isDemo = mode === 'demo'
   const { user } = useAuth()
-  const [showSignInHint, setShowSignInHint] = useState(false)
+  const [hint, setHint] = useState<string | null>(null)
+
+  function showHint(message: string) {
+    setHint(message)
+    setTimeout(() => setHint(null), 4000)
+  }
 
   function handleConnectClick() {
     if (!user) {
-      setShowSignInHint(true)
-      setTimeout(() => setShowSignInHint(false), 3000)
+      showHint('Sign in first (top right) →')
       return
     }
-    startConnect()
+    const result = startConnect()
+    if (!result.ok) {
+      showHint(result.error)
+    }
   }
 
   return (
@@ -73,7 +80,7 @@ export function ModeBanner() {
             Disconnect
           </button>
         )}
-        {showSignInHint && <span className="shrink-0 text-xs text-ink-faint">Sign in first (top right) →</span>}
+        {hint && <span className="shrink-0 text-xs font-medium text-ink">{hint}</span>}
       </div>
       <div className="justify-self-end overflow-hidden">
         <AuthControl />
