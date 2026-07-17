@@ -219,7 +219,7 @@ function fetchDashboardDemo(): Promise<DashboardResponse> {
   return Promise.resolve(getDemoDashboard())
 }
 
-export function fetchDashboard(mode: Mode, userId: string): Promise<DashboardResponse> {
+export function fetchDashboard(mode: Mode): Promise<DashboardResponse> {
   return mode === 'demo' ? fetchDashboardDemo() : fetchDashboardLive()
 }
 

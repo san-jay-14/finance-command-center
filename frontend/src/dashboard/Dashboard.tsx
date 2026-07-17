@@ -9,7 +9,6 @@ import { NetWorthCard } from './NetWorthCard'
 import { NetWorthTrendCard } from './NetWorthTrendCard'
 import { UpcomingCard } from './UpcomingCard'
 
-const USER_ID = import.meta.env.VITE_USER_ID
 // Live prices tick every second or so via the Realtime channel; re-polling
 // the snapshot itself just needs to catch changes made elsewhere (a new
 // transaction, a new recurring rule) — 30s keeps the two forms of "live"
@@ -34,8 +33,8 @@ export function Dashboard({ livePrices }: DashboardProps) {
     refetchInterval: REFETCH_MS,
   })
   const { data: dash } = useQuery({
-    queryKey: ['dashboard', mode, USER_ID],
-    queryFn: () => fetchDashboard(mode, USER_ID),
+    queryKey: ['dashboard', mode],
+    queryFn: () => fetchDashboard(mode),
     refetchInterval: REFETCH_MS,
   })
 
