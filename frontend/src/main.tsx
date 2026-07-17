@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { ConnectCallback } from './components/ConnectCallback.tsx'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,10 +17,16 @@ const queryClient = new QueryClient({
   },
 })
 
+// No router — the app only ever has two real "pages" (the dashboard, and
+// this one-shot landing point for Angel One's Publisher Login redirect), so
+// a single pathname check is simpler than pulling in a routing library for
+// one conditional split.
+const isConnectCallback = window.location.pathname === '/connect/callback'
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      {isConnectCallback ? <ConnectCallback /> : <App />}
     </QueryClientProvider>
   </StrictMode>,
 )
