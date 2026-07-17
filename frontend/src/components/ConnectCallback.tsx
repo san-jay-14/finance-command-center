@@ -1,21 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import { consumeStoredConnectState } from '../lib/angelOneConnect'
+import { consumeStoredConnectState, tryExtractClientCode } from '../lib/angelOneConnect'
+import { connectBrokerSession } from '../lib/brokerConnect'
 
-type CapturedTokens = { authToken: string; feedToken: string; refreshToken: string | null }
+type Status =
+  | { phase: 'connecting' }
+  | { phase: 'storing' }
+  | { phase: 'success' }
+  | { phase: 'error'; message: string }
 
 // Landing point for Angel One's Publisher Login redirect (mounted directly
 // from main.tsx when pathname is /connect/callback, bypassing the normal
-// App tree entirely). Step 5 scope only: confirms the round trip works and
-// tokens arrive — it does not persist anything (Step 6: broker_sessions via
-// Vault) or flip the app to live mode (Step 7). Demo mode elsewhere is
-// completely unaffected by this route existing.
+// App tree entirely). Captures auth_token/feed_token/refresh_token, then
+// persists them into broker_sessions via Vault (Step 6, connectBrokerSession
+// -> connect-broker-session edge function). Does NOT flip the app to live
+// mode yet — that's Step 7. Demo mode elsewhere is completely unaffected by
+// this route existing.
 export function ConnectCallback() {
-  const [tokens, setTokens] = useState<CapturedTokens | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  // The effect below mutates the URL (strips tokens via replaceState), so it
-  // must only truly run once — StrictMode's dev-only double-invoke would
-  // otherwise have the second pass read an already-cleared query string and
-  // overwrite a real success with a false "no tokens" error.
+  const [status, setStatus] = useState<Status>({ phase: 'connecting' })
+  // The effect below mutates the URL (strips tokens via replaceState) and
+  // kicks off a network write, so it must only truly run once — StrictMode's
+  // dev-only double-invoke would otherwise re-read an already-cleared query
+  // string and/or double-submit the write.
   const hasRun = useRef(false)
 
   useEffect(() => {
@@ -37,37 +42,44 @@ export function ConnectCallback() {
       console.warn('Angel One connect: no state param returned on callback (known SmartAPI quirk)')
     }
 
+    // Scrub tokens out of the URL/history immediately, before any async
+    // work — no reason for them to linger in the address bar or browser
+    // history any longer than the instant it took to read them.
+    window.history.replaceState({}, '', '/connect/callback')
+
     if (!authToken || !feedToken) {
-      setError('No tokens were returned. The connect attempt may have failed or been cancelled.')
+      setStatus({ phase: 'error', message: 'No tokens were returned. The connect attempt may have failed or been cancelled.' })
       return
     }
 
-    setTokens({ authToken, feedToken, refreshToken })
-
-    // Scrub tokens out of the URL/history immediately — no reason for them
-    // to linger in the address bar or browser history any longer than the
-    // instant it took to read them.
-    window.history.replaceState({}, '', '/connect/callback')
+    setStatus({ phase: 'storing' })
+    connectBrokerSession({
+      authToken,
+      feedToken,
+      refreshToken,
+      clientCode: tryExtractClientCode(authToken),
+    }).then((result) => {
+      setStatus(result.ok ? { phase: 'success' } : { phase: 'error', message: result.error })
+    })
   }, [])
 
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 bg-page px-6 text-center font-body text-ink">
-      {error ? (
+      {status.phase === 'error' ? (
         <>
           <div className="text-lg font-semibold text-loss">Connect failed</div>
-          <div className="max-w-sm text-sm text-ink-soft">{error}</div>
+          <div className="max-w-sm text-sm text-ink-soft">{status.message}</div>
         </>
-      ) : tokens ? (
+      ) : status.phase === 'success' ? (
         <>
-          <div className="gain-text text-lg font-semibold">Tokens received</div>
+          <div className="gain-text text-lg font-semibold">Account connected</div>
           <div className="max-w-sm text-sm text-ink-soft">
-            Angel One returned an auth token and feed token successfully. Storing this session and
-            switching to live mode are wired up in later steps — for now this just confirms the
-            round trip works end-to-end.
+            Your Angel One session has been saved. Switching the dashboard to live mode is wired up
+            in the next step — for now this just confirms the session was stored correctly.
           </div>
         </>
       ) : (
-        <div className="text-sm text-ink-faint">Connecting…</div>
+        <div className="text-sm text-ink-faint">{status.phase === 'storing' ? 'Saving your session…' : 'Connecting…'}</div>
       )}
       <a href="/" className="text-sm text-primary-start hover:underline">
         Back to dashboard

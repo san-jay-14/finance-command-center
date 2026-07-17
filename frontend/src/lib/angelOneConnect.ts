@@ -36,3 +36,21 @@ export function consumeStoredConnectState(): string | null {
   sessionStorage.removeItem(STATE_STORAGE_KEY)
   return state
 }
+
+// Best-effort only — Angel One's Publisher callback doesn't return a
+// client_code param of its own (confirmed via their SmartAPI forum: "the
+// auth_token key... has client id encoded in it"), so this decodes the JWT
+// payload and tries a few plausible claim names. Never throws; returns null
+// if the token isn't a JWT or none of the claims are present.
+export function tryExtractClientCode(authToken: string): string | null {
+  try {
+    const payload = authToken.split('.')[1]
+    if (!payload) return null
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = JSON.parse(atob(base64)) as Record<string, unknown>
+    const candidate = decoded.clientcode ?? decoded.client_code ?? decoded.userId ?? decoded.userid ?? decoded.sub
+    return typeof candidate === 'string' ? candidate : null
+  } catch {
+    return null
+  }
+}
