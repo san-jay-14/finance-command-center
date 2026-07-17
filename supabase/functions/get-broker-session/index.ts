@@ -43,8 +43,11 @@ Deno.serve(async (req: Request) => {
     .maybeSingle();
 
   if (error) return json({ error: error.message }, 500);
-  if (!data) return json({ connected: false });
+  // No row at all vs. a row that's past expires_at are different UI states
+  // (Step 8) — "connect your account" vs. "your session expired, reconnect"
+  // — so both are reported rather than collapsing to one boolean.
+  if (!data) return json({ connected: false, expired: false });
 
   const connected = new Date(data.expires_at).getTime() > Date.now();
-  return json({ connected, client_code: data.client_code, expires_at: data.expires_at });
+  return json({ connected, expired: !connected, client_code: data.client_code, expires_at: data.expires_at });
 });

@@ -10,11 +10,13 @@ import { useModeStore } from '../store/modeStore'
 // Same mechanism naturally handles Step 8's expiry fallback: an expired
 // session just fails the check and mode resolves to demo.
 export function useModeSync(): void {
-  const { connected, loading } = useBrokerSession()
+  const { connected, expired, loading } = useBrokerSession()
   const setMode = useModeStore((s) => s.setMode)
+  const setExpired = useModeStore((s) => s.setExpired)
 
   useEffect(() => {
     if (loading) return
     setMode(connected ? 'live' : 'demo')
-  }, [connected, loading, setMode])
+    if (!connected) setExpired(expired)
+  }, [connected, expired, loading, setMode, setExpired])
 }

@@ -94,7 +94,14 @@ Deno.serve(async (req: Request) => {
 
   const holdingBody = await holdingRes.json().catch(() => null);
   if (!holdingRes.ok || !holdingBody?.status) {
-    return json({ error: holdingBody?.message ?? "Angel One getHolding request failed" }, 502);
+    // Angel One rejecting the token outright (401/403) is distinct from our
+    // own expires_at estimate having already caught this above — this is
+    // the "broker 401" case Step 8 asks for: the token died some other way
+    // before midnight IST. Reported as 401 either way so the frontend can
+    // treat both the same (fall back to demo, show the expired message).
+    const status = holdingRes.status === 401 || holdingRes.status === 403 ? 401 : 502;
+    const error = status === 401 ? "broker_unauthorized" : (holdingBody?.message ?? "Angel One getHolding request failed");
+    return json({ error }, status);
   }
 
   const profileBody = await profileRes.json().catch(() => null);

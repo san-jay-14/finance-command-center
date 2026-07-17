@@ -1,6 +1,6 @@
 import { getDemoDashboard, getDemoNetWorth, getDemoPriceHistory, getDemoProactiveInsights } from './demoData'
 import { supabase } from './supabaseClient'
-import type { Mode } from '../store/modeStore'
+import { useModeStore, type Mode } from '../store/modeStore'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
@@ -66,6 +66,17 @@ async function fetchNetWorthLive(): Promise<NetWorthResponse> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/get-net-worth-connected`, {
     headers: { Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY },
   })
+  if (res.status === 401 || res.status === 404) {
+    // Broker session died mid-use (Angel One rejected the token, or our own
+    // expires_at estimate lapsed) or was disconnected elsewhere — don't
+    // hard-fail, drop back to demo per the brief's expiry-handling
+    // requirement (Step 8), rather than showing a broken fetch-error state.
+    // useModeSync will independently reach the same conclusion on its next
+    // check; this just avoids the gap in between.
+    useModeStore.getState().setMode('demo')
+    useModeStore.getState().setExpired(true)
+    return getDemoNetWorth()
+  }
   if (!res.ok) {
     const detail = await res.text()
     throw new Error(`get-net-worth-connected failed (${res.status}): ${detail}`)

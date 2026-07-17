@@ -4,17 +4,17 @@ import { LinkIcon } from '../dashboard/icons'
 import { useAuth } from '../hooks/useAuth'
 import { useBrokerSession } from '../hooks/useBrokerSession'
 import { startConnect } from '../lib/angelOneConnect'
+import { disconnectBrokerSession } from '../lib/brokerConnect'
 import { useModeStore } from '../store/modeStore'
 
 // Persistent strip pinned above the dashboard, floating windows, and orb
 // (z-50, higher than WindowsLayer's z-40) — never a dismissible toast, so
 // the active mode is always visible per the brief's "no silent mode
-// switches" requirement. The disconnect CTA (live mode) is still a disabled
-// placeholder — that's Step 8. The connect CTA (demo mode) is real as of
-// Step 5, gated on being signed in first (Step 6 needs a signed-in user to
-// scope the stored broker session to). Mode itself is driven by useModeSync
-// elsewhere (App.tsx) — this component just reflects it plus the client
-// code for display.
+// switches" requirement. Both CTAs are real as of Step 8: connect (demo
+// mode, gated on sign-in — Step 6 needs a signed-in user to scope the
+// stored broker session to) and disconnect (live mode, deletes the stored
+// session). Mode itself is driven by useModeSync elsewhere (App.tsx) — this
+// component just reflects it plus the client code / expiry state.
 //
 // Fixed height (h-11) — Dashboard's root pt-11 reserves matching space so
 // this doesn't cover the dashboard content underneath. Keep both in sync.
@@ -26,10 +26,13 @@ import { useModeStore } from '../store/modeStore'
 // never fights the center group for space.
 export function ModeBanner() {
   const mode = useModeStore((s) => s.mode)
+  const expired = useModeStore((s) => s.expired)
+  const setMode = useModeStore((s) => s.setMode)
   const isDemo = mode === 'demo'
   const { user } = useAuth()
   const { clientCode } = useBrokerSession()
   const [hint, setHint] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   function showHint(message: string) {
     setHint(message)
@@ -47,6 +50,19 @@ export function ModeBanner() {
     }
   }
 
+  async function handleDisconnectClick() {
+    setDisconnecting(true)
+    const result = await disconnectBrokerSession()
+    setDisconnecting(false)
+    if (!result.ok) {
+      showHint(result.error)
+      return
+    }
+    // Instant feedback rather than waiting for useModeSync's next check —
+    // that check will independently confirm the same thing once it re-runs.
+    setMode('demo')
+  }
+
   return (
     <div className="fixed inset-x-0 top-0 z-50 grid h-11 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border-soft bg-card px-4 text-sm">
       <div />
@@ -62,7 +78,9 @@ export function ModeBanner() {
           <span className="text-ink-soft">
             {' — '}
             {isDemo
-              ? 'showing sample data. Connect your Angel One account to see your real portfolio.'
+              ? expired
+                ? 'your broker session expired, showing demo data. Reconnect to resume live data.'
+                : 'showing sample data. Connect your Angel One account to see your real portfolio.'
               : 'showing your live portfolio data.'}
           </span>
         </span>
@@ -73,17 +91,17 @@ export function ModeBanner() {
             className="flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-br from-primary-start to-primary-end px-3 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-90"
           >
             <LinkIcon className="h-3.5 w-3.5" />
-            Connect your account
+            {expired ? 'Reconnect your account' : 'Connect your account'}
           </button>
         ) : (
           <button
             type="button"
-            disabled
-            title="Coming soon"
-            className="flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-full bg-gradient-to-br from-primary-start to-primary-end px-3 py-1 text-xs font-semibold text-white opacity-50"
+            onClick={handleDisconnectClick}
+            disabled={disconnecting}
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-br from-primary-start to-primary-end px-3 py-1 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <LinkIcon className="h-3.5 w-3.5" />
-            Disconnect
+            {disconnecting ? 'Disconnecting…' : 'Disconnect'}
           </button>
         )}
         {hint && <span className="shrink-0 text-xs font-medium text-ink">{hint}</span>}

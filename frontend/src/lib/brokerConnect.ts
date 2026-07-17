@@ -45,3 +45,27 @@ export async function connectBrokerSession(input: ConnectBrokerSessionInput): Pr
   }
   return { ok: true }
 }
+
+export type DisconnectBrokerSessionResult = { ok: true } | { ok: false; error: string }
+
+// Step 8 — deletes the stored session and its Vault secrets, same endpoint
+// as connect (DELETE instead of POST) since they share the JWT-derived
+// user_id logic.
+export async function disconnectBrokerSession(): Promise<DisconnectBrokerSessionResult> {
+  const { data } = await supabase.auth.getSession()
+  const accessToken = data.session?.access_token
+  if (!accessToken) {
+    return { ok: false, error: 'Not signed in' }
+  }
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/connect-broker-session`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY },
+  })
+
+  if (!res.ok) {
+    const detail = await res.text()
+    return { ok: false, error: `disconnect failed (${res.status}): ${detail}` }
+  }
+  return { ok: true }
+}

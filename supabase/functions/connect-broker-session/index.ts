@@ -26,8 +26,8 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
-  if (req.method !== "POST") {
-    return json({ error: "Use POST" }, 405);
+  if (req.method !== "POST" && req.method !== "DELETE") {
+    return json({ error: "Use POST or DELETE" }, 405);
   }
 
   const authHeader = req.headers.get("Authorization");
@@ -40,6 +40,15 @@ Deno.serve(async (req: Request) => {
   const { data: userData, error: userError } = await supabase.auth.getUser(jwt);
   if (userError || !userData.user) {
     return json({ error: "Invalid or expired session" }, 401);
+  }
+
+  // Disconnect (Step 8) — deletes the session row and its Vault secrets,
+  // returning the user to demo mode. Separate from the connect (POST) path
+  // below, sharing only the JWT-verification boilerplate.
+  if (req.method === "DELETE") {
+    const { error } = await supabase.rpc("delete_broker_session", { p_user_id: userData.user.id });
+    if (error) return json({ error: error.message }, 500);
+    return json({ disconnected: true });
   }
 
   let body: {
