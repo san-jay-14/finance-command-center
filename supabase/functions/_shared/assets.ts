@@ -12,14 +12,17 @@ export function symbolForAsset(assetClass: string, schemeCode?: string): string 
   return null; // real_estate / other: matched by name, not symbol
 }
 
+// Both functions are owner_id-scoped (Supabase Auth), not the legacy
+// user_id (public.users) — handle-message is their only caller, and it's
+// exclusively a per-visitor, JWT-verified path as of Step 9.
 export async function findExistingAsset(
   supabase: AdminClient,
-  userId: string,
+  ownerId: string,
   assetClass: string,
   assetName: string,
   symbol: string | null,
 ): Promise<string | null> {
-  let query = supabase.from("assets").select("id").eq("user_id", userId).eq("asset_class", assetClass);
+  let query = supabase.from("assets").select("id").eq("owner_id", ownerId).eq("asset_class", assetClass);
   query = symbol ? query.eq("symbol", symbol) : query.ilike("name", assetName);
   const { data, error } = await query.limit(1);
   if (error) throw new Error(error.message);
@@ -28,17 +31,17 @@ export async function findExistingAsset(
 
 export async function findOrCreateAsset(
   supabase: AdminClient,
-  userId: string,
+  ownerId: string,
   assetClass: string,
   assetName: string,
   symbol: string | null,
 ): Promise<{ id: string; created: boolean }> {
-  const existingId = await findExistingAsset(supabase, userId, assetClass, assetName, symbol);
+  const existingId = await findExistingAsset(supabase, ownerId, assetClass, assetName, symbol);
   if (existingId) return { id: existingId, created: false };
 
   const { data: created, error: createError } = await supabase
     .from("assets")
-    .insert({ user_id: userId, broker_connection_id: null, symbol, name: assetName, asset_class: assetClass })
+    .insert({ owner_id: ownerId, broker_connection_id: null, symbol, name: assetName, asset_class: assetClass })
     .select("id")
     .single();
   if (createError) throw new Error(createError.message);

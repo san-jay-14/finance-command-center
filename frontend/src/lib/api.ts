@@ -149,20 +149,39 @@ export type HandleMessageResponse =
   | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
   | { tool: null; message: string }
 
+export type SendMessageResult = { ok: true; response: HandleMessageResponse } | { ok: false; error: string }
+
 // openWindowTitles gives Claude the real, current list of open window titles
 // so "close the asset distribution" / "close all" can resolve against what's
 // actually on screen right now (window state is frontend-only/session-only,
 // the backend has no other way to know it).
-export function sendMessage(
-  message: string,
-  userId: string,
-  openWindowTitles: string[] = [],
-): Promise<HandleMessageResponse> {
-  return callFunction<HandleMessageResponse>('handle-message', {
-    message,
-    user_id: userId,
-    open_window_titles: openWindowTitles,
+//
+// Requires a real signed-in session (Step 9 write-path safety) — handle-
+// message derives owner_id from this JWT and scopes every write to it,
+// never trusting a client-supplied user id. Not routed through
+// callFunction, same reason as connectBrokerSession: that helper always
+// sends the anon key, this needs the caller's own session.
+export async function sendMessage(message: string, openWindowTitles: string[] = []): Promise<SendMessageResult> {
+  const { data } = await supabase.auth.getSession()
+  const accessToken = data.session?.access_token
+  if (!accessToken) {
+    return { ok: false, error: 'Sign in to use the voice assistant' }
+  }
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/handle-message`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      apikey: SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ message, open_window_titles: openWindowTitles }),
   })
+  if (!res.ok) {
+    const detail = await res.text()
+    return { ok: false, error: `handle-message failed (${res.status}): ${detail}` }
+  }
+  return { ok: true, response: await res.json() }
 }
 
 export type DashboardActivity = {

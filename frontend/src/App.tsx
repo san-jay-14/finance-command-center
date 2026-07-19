@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Toaster } from 'sonner'
 import { Dashboard } from './dashboard/Dashboard'
+import { useAuth } from './hooks/useAuth'
 import { useLivePrices } from './hooks/useLivePrices'
 import { useTransactionToasts } from './hooks/useTransactionToasts'
 import { ModeBanner } from './components/ModeBanner'
@@ -11,8 +12,6 @@ import { VoiceOrb } from './orb/VoiceOrb'
 import { useModeStore } from './store/modeStore'
 import { useWindowsStore } from './store/windowsStore'
 import { WindowsLayer } from './windows/WindowsLayer'
-
-const USER_ID = import.meta.env.VITE_USER_ID
 
 function titleForComponent(component: string): string {
   return component
@@ -30,6 +29,7 @@ function App() {
   const [pending, setPending] = useState(false)
   const [speaking, setSpeaking] = useState(false)
   useModeSync()
+  const { user } = useAuth()
   const mode = useModeStore((s) => s.mode)
   const livePrices = useLivePrices(mode)
   const openWindow = useWindowsStore((s) => s.openWindow)
@@ -90,18 +90,23 @@ function App() {
   // _viaVoice is accepted (VoiceOrb always passes true) but doesn't change
   // behavior — every response speaks regardless.
   async function handleSend(message: string, _viaVoice: boolean) {
-    setPending(true)
-    let response: HandleMessageResponse
-    try {
-      const openTitles = useWindowsStore.getState().windows.map((w) => w.title)
-      response = await sendMessage(message, USER_ID, openTitles)
-    } catch (err) {
-      setPending(false)
-      await speakMessage(`Something went wrong: ${(err as Error).message}`)
+    // Voice writes are per-signed-in-user now (Step 9 write-path safety) —
+    // an anonymous demo visitor has nowhere safe for handle-message to
+    // write, so the assistant simply isn't reachable until they sign in.
+    if (!user) {
+      await speakMessage('Please sign in first to use the voice assistant.')
       return
     }
+
+    setPending(true)
+    const openTitles = useWindowsStore.getState().windows.map((w) => w.title)
+    const result = await sendMessage(message, openTitles)
     setPending(false)
-    await handleResponse(response)
+    if (!result.ok) {
+      await speakMessage(`Something went wrong: ${result.error}`)
+      return
+    }
+    await handleResponse(result.response)
   }
 
   return (

@@ -17,7 +17,13 @@ import { advanceDate, today } from "../_shared/dates.ts";
 import { broadcastRealtime } from "../_shared/realtimeBroadcast.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
 
-const TRANSACTIONS_TOPIC = "transactions";
+// Per-owner topic (PROJECT_BRIEF_demo_and_connect.md step 9 write-path
+// safety pass) — was a single global "transactions" string, which meant
+// every connected browser tab (any visitor) got toasted for every other
+// visitor's voice-logged activity. ownerId is interpolated in per request.
+function transactionsTopic(ownerId: string): string {
+  return `transactions:${ownerId}`;
+}
 
 function buildSystemPrompt(todayStr: string, openWindowTitles: string[]): string {
   const openWindowsLine =
@@ -240,16 +246,26 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Use POST" }, 405);
   }
 
-  let body: { message?: string; user_id?: string; open_window_titles?: string[] };
+  // Requires a real signed-in session (PROJECT_BRIEF_demo_and_connect.md
+  // step 9) — previously took a client-supplied user_id and wrote straight
+  // into the founder's single legacy dataset regardless of who or what mode
+  // was asking. ownerId is always derived from the verified JWT below,
+  // never trusted from the request body.
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return json({ error: "Missing Authorization header — sign in to use the voice assistant" }, 401);
+  }
+
+  let body: { message?: string; open_window_titles?: string[] };
   try {
     body = await req.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { message, user_id, open_window_titles: openWindowTitles = [] } = body;
-  if (!message || !user_id) {
-    return json({ error: "message and user_id are required" }, 400);
+  const { message, open_window_titles: openWindowTitles = [] } = body;
+  if (!message) {
+    return json({ error: "message is required" }, 400);
   }
 
   const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -258,6 +274,14 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabase = createAdminClient();
+
+  const jwt = authHeader.replace(/^Bearer\s+/i, "");
+  const { data: userData, error: userError } = await supabase.auth.getUser(jwt);
+  if (userError || !userData.user) {
+    return json({ error: "Invalid or expired session" }, 401);
+  }
+  const ownerId = userData.user.id;
+
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
   // Check pending_intents first — a short reply like "5" should resolve
@@ -265,7 +289,7 @@ Deno.serve(async (req: Request) => {
   const { data: pendingRows, error: pendingError } = await supabase
     .from("pending_intents")
     .select("id, question, context")
-    .eq("user_id", user_id)
+    .eq("owner_id", ownerId)
     .eq("resolved", false)
     .order("created_at", { ascending: false })
     .limit(1);
@@ -329,7 +353,7 @@ Deno.serve(async (req: Request) => {
       if (assetClass !== "stock" && (action === "buy" || action === "manual_entry")) {
         try {
           const symbol = symbolForAsset(assetClass, schemeCode);
-          const asset = await findOrCreateAsset(supabase, user_id, assetClass, assetName, symbol);
+          const asset = await findOrCreateAsset(supabase, ownerId, assetClass, assetName, symbol);
           assetId = asset.id;
           if (asset.created && (assetClass === "real_estate" || assetClass === "other")) {
             await supabase.from("assets").update({ manual_current_value: amount }).eq("id", asset.id);
@@ -341,7 +365,7 @@ Deno.serve(async (req: Request) => {
       } else if (assetClass !== "stock" && action === "sell") {
         try {
           const symbol = symbolForAsset(assetClass, schemeCode);
-          const existingId = await findExistingAsset(supabase, user_id, assetClass, assetName, symbol);
+          const existingId = await findExistingAsset(supabase, ownerId, assetClass, assetName, symbol);
           if (existingId) {
             assetId = existingId;
             await reduceLotForSale(supabase, existingId, quantity);
@@ -355,7 +379,7 @@ Deno.serve(async (req: Request) => {
 
       const { data, error } = await supabase
         .from("transactions")
-        .insert({ user_id, asset_id: assetId, action, quantity, amount, source: "manual" })
+        .insert({ owner_id: ownerId, asset_id: assetId, action, quantity, amount, source: "voice" })
         .select()
         .single();
       if (error) return json({ error: error.message }, 500);
@@ -363,9 +387,9 @@ Deno.serve(async (req: Request) => {
       await broadcastRealtime(
         Deno.env.get("SUPABASE_URL")!,
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-        TRANSACTIONS_TOPIC,
+        transactionsTopic(ownerId),
         "new",
-        { action, quantity, amount, asset_name: assetName, asset_class: assetClass, source: "manual" },
+        { action, quantity, amount, asset_name: assetName, asset_class: assetClass, source: "voice" },
       );
 
       return json({
@@ -382,7 +406,7 @@ Deno.serve(async (req: Request) => {
       const { data: existing, error: findError } = await supabase
         .from("assets")
         .select("id, name")
-        .eq("user_id", user_id)
+        .eq("owner_id", ownerId)
         .eq("asset_class", assetClass)
         .ilike("name", `%${assetName}%`)
         .limit(1);
@@ -419,7 +443,7 @@ Deno.serve(async (req: Request) => {
       try {
         assetId =
           assetClass !== "stock"
-            ? await findExistingAsset(supabase, user_id, assetClass, assetName, symbolForAsset(assetClass))
+            ? await findExistingAsset(supabase, ownerId, assetClass, assetName, symbolForAsset(assetClass))
             : null;
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -430,7 +454,7 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await supabase
         .from("recurring_rules")
         .insert({
-          user_id,
+          owner_id: ownerId,
           asset_class: assetClass,
           asset_id: assetId,
           amount,
@@ -460,14 +484,14 @@ Deno.serve(async (req: Request) => {
 
       const { data: existing, error: findError } = await supabase
         .from("financial_profile")
-        .select("user_id")
-        .eq("user_id", user_id)
+        .select("id")
+        .eq("owner_id", ownerId)
         .maybeSingle();
       if (findError) return json({ error: findError.message }, 500);
 
       const result = existing
-        ? await supabase.from("financial_profile").update(updates).eq("user_id", user_id).select().single()
-        : await supabase.from("financial_profile").insert({ user_id, ...updates }).select().single();
+        ? await supabase.from("financial_profile").update(updates).eq("owner_id", ownerId).select().single()
+        : await supabase.from("financial_profile").insert({ owner_id: ownerId, ...updates }).select().single();
       if (result.error) return json({ error: result.error.message }, 500);
 
       const parts = Object.entries(updates)
@@ -489,7 +513,7 @@ Deno.serve(async (req: Request) => {
       const affordabilityRes = await fetch(`${supabaseUrl}/functions/v1/check-affordability`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
-        body: JSON.stringify({ user_id, purchase_amount: cost, new_emi: newEmi }),
+        body: JSON.stringify({ owner_id: ownerId, purchase_amount: cost, new_emi: newEmi }),
       });
       const affordabilityResult = await affordabilityRes.json();
       if (!affordabilityRes.ok) {
@@ -632,7 +656,7 @@ Deno.serve(async (req: Request) => {
       const { data: transactions, error: txnError } = await supabase
         .from("transactions")
         .select("id, action, quantity, amount, source, created_at, assets(name, asset_class, symbol)")
-        .eq("user_id", user_id)
+        .eq("owner_id", ownerId)
         .order("created_at", { ascending: false })
         .limit(200);
       if (txnError) return json({ error: txnError.message }, 500);
@@ -658,7 +682,7 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await supabase
         .from("pending_intents")
         .insert({
-          user_id,
+          owner_id: ownerId,
           context: { original_message: message },
           question: input.question,
           resolved: false,

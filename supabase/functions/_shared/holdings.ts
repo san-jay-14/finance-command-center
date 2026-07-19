@@ -51,13 +51,19 @@ export async function valuateSingleAsset(
 
 // Valuation for multiple assets at once (optionally filtered to specific
 // classes, e.g. the liquid-assets check in check-affordability). Shared by
-// get-net-worth (no filter — every asset) and check-affordability (filtered
-// to stock/mutual_fund/gold).
+// get-net-worth (legacy founder path) and check-affordability (per-visitor
+// path). ownerId is required, not optional, specifically so a call site
+// can't forget to scope it: `null` means the legacy founder rows
+// (owner_id IS NULL), a real id means that signed-in visitor's own rows
+// only — without this, a per-visitor asset would show up in the founder's
+// own get-net-worth response, and vice versa (see Step 9 write-path audit).
 export async function valuateAssets(
   supabase: AdminClient,
-  filterClasses?: string[],
+  filterClasses: string[] | undefined,
+  ownerId: string | null,
 ): Promise<{ holding: HoldingRow; valuation: Valuation }[]> {
   let query = supabase.from("assets").select("id, symbol, name, asset_class, manual_current_value");
+  query = ownerId === null ? query.is("owner_id", null) : query.eq("owner_id", ownerId);
   if (filterClasses && filterClasses.length > 0) {
     query = query.in("asset_class", filterClasses);
   }

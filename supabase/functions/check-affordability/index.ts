@@ -20,16 +20,18 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Use POST" }, 405);
   }
 
-  let body: { user_id?: string; purchase_amount?: number; new_emi?: number };
+  let body: { owner_id?: string; purchase_amount?: number; new_emi?: number };
   try {
     body = await req.json();
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { user_id, purchase_amount, new_emi } = body;
-  if (!user_id || purchase_amount == null) {
-    return json({ error: "user_id and purchase_amount are required" }, 400);
+  // owner_id (Supabase Auth) — Step 9. Only caller is handle-message, which
+  // derives this from the caller's verified JWT, never trusts client input.
+  const { owner_id, purchase_amount, new_emi } = body;
+  if (!owner_id || purchase_amount == null) {
+    return json({ error: "owner_id and purchase_amount are required" }, 400);
   }
 
   const supabase = createAdminClient();
@@ -37,13 +39,13 @@ Deno.serve(async (req: Request) => {
   const { data: profile, error: profileError } = await supabase
     .from("financial_profile")
     .select("*")
-    .eq("user_id", user_id)
+    .eq("owner_id", owner_id)
     .maybeSingle();
   if (profileError) return json({ error: profileError.message }, 500);
 
   // --- 1. Emergency fund check: liquid assets (stock+MF+gold) must not drop
   // below emergency_fund_months of monthly_expenses. ---
-  const liquidHoldings = await valuateAssets(supabase, ["stock", "mutual_fund", "gold"]);
+  const liquidHoldings = await valuateAssets(supabase, ["stock", "mutual_fund", "gold"], owner_id);
   const liquidAssetsBefore = liquidHoldings.reduce((sum, h) => sum + (h.valuation.current_value ?? 0), 0);
   const liquidAssetsAfter = liquidAssetsBefore - purchase_amount;
 
@@ -73,7 +75,7 @@ Deno.serve(async (req: Request) => {
   } else {
     let standing;
     try {
-      standing = await computeFoir(supabase, user_id, profile);
+      standing = await computeFoir(supabase, owner_id, profile);
     } catch (err) {
       return json({ error: err instanceof Error ? err.message : String(err) }, 500);
     }

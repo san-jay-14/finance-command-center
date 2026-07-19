@@ -15,15 +15,17 @@ export type FoirBreakdown = {
   foir_ratio: number | null;
 };
 
+// ownerId here is Supabase Auth (Step 9) — check-affordability's only
+// caller — not the legacy user_id (public.users).
 export async function computeFoir(
   supabase: AdminClient,
-  userId: string,
+  ownerId: string,
   profile: { monthly_income?: number | string | null; existing_emis?: number | string | null } | null,
 ): Promise<FoirBreakdown> {
   const { data: rules, error } = await supabase
     .from("recurring_rules")
     .select("amount, frequency")
-    .eq("user_id", userId)
+    .eq("owner_id", ownerId)
     .eq("active", true);
   if (error) throw new Error(error.message);
 

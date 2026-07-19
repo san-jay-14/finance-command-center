@@ -14,7 +14,10 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabase = createAdminClient();
-  const rows = await valuateAssets(supabase);
+  // null = legacy founder scope (owner_id IS NULL) — this endpoint is the
+  // pre-Supabase-Auth single-tenant path and must never see Step 9's new
+  // per-visitor owner_id-scoped rows.
+  const rows = await valuateAssets(supabase, undefined, null);
 
   let totalValue = 0;
   let dayChangeValue = 0;
