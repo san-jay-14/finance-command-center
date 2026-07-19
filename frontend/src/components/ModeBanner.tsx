@@ -16,8 +16,11 @@ import { useModeStore } from '../store/modeStore'
 // session). Mode itself is driven by useModeSync elsewhere (App.tsx) — this
 // component just reflects it plus the client code / expiry state.
 //
-// Fixed height (h-11) — Dashboard's root pt-11 reserves matching space so
-// this doesn't cover the dashboard content underneath. Keep both in sync.
+// Overlaid directly on the purple NetWorthCard hero (not a separate strip
+// pushing the dashboard down) — fixed positioning takes it out of document
+// flow entirely, so Dashboard's root needs no compensating padding. A
+// tinted, blurred glass bar rather than a solid one so it reads as part of
+// the hero rather than a hard-edged bar dropped on top of it.
 //
 // Three-column grid (not a single centered flex row) so the low-key
 // sign-in control can sit at the far right without pulling the mode
@@ -64,7 +67,7 @@ export function ModeBanner() {
   }
 
   return (
-    <div className="fixed inset-x-0 top-0 z-50 grid h-11 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border-soft bg-card px-4 text-sm">
+    <div className="fixed inset-x-0 top-0 z-50 grid h-11 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-white/10 bg-black/30 px-4 text-sm backdrop-blur-md">
       <div />
       <div className="flex items-center justify-center gap-3">
         <span

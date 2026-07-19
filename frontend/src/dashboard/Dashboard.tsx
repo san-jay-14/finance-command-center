@@ -99,7 +99,7 @@ export function Dashboard({ livePrices }: DashboardProps) {
   const profile = dash?.profile
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-page pt-11 font-body text-ink">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-page font-body text-ink">
       <div className="page-texture" />
       <div className="relative shrink-0">
         <NetWorthCard

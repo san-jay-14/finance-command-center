@@ -6,6 +6,7 @@ import { useLivePrices } from './hooks/useLivePrices'
 import { useTransactionToasts } from './hooks/useTransactionToasts'
 import { ModeBanner } from './components/ModeBanner'
 import { useModeSync } from './hooks/useModeSync'
+import { useVoiceOnboarding } from './hooks/useVoiceOnboarding'
 import { sendMessage, type HandleMessageResponse } from './lib/api'
 import { speak } from './lib/speech'
 import { VoiceOrb } from './orb/VoiceOrb'
@@ -45,6 +46,8 @@ function App() {
       setSpeaking(false)
     }
   }
+
+  useVoiceOnboarding(speakMessage)
 
   async function handleResponse(response: HandleMessageResponse) {
     switch (response.tool) {
