@@ -163,6 +163,21 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
 
   const state: OrbState = listening ? 'listening' : pending ? 'thinking' : speaking ? 'speaking' : 'idle'
 
+  // The orb's home docks near a screen edge/corner (useOrbOffset avoids open
+  // windows, and its natural slot sits at the right of the hero card), so a
+  // tooltip always centered under it can clip off the left/right edge —
+  // flip the anchor toward whichever side actually has room instead.
+  const TOOLTIP_WIDTH = 224 // w-56
+  const EDGE_MARGIN = 16
+  const orbCenterX = position.x + ORB_SIZE / 2
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280
+  const tooltipAlignClass =
+    orbCenterX - TOOLTIP_WIDTH / 2 < EDGE_MARGIN
+      ? 'left-0'
+      : orbCenterX + TOOLTIP_WIDTH / 2 > viewportWidth - EDGE_MARGIN
+        ? 'right-0'
+        : 'left-1/2 -translate-x-1/2'
+
   return (
     <motion.div
       ref={orbElRef}
@@ -177,11 +192,6 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
       animate={{ x: position.x, y: position.y }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
     >
-      {errorMessage && (
-        <div className="card absolute top-full left-1/2 mt-2 w-56 -translate-x-1/2 px-3 py-2 text-center text-[11px] text-ink">
-          {errorMessage}
-        </div>
-      )}
       <div
         className="h-full w-full"
         title={!supported ? "This browser doesn't support voice input" : 'Hold spacebar to talk'}
@@ -189,6 +199,14 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
       >
         <Orb agentState={AGENT_STATE[state]} colors={ORB_COLORS} className="h-full w-full" />
       </div>
+      {/* Declared after the orb so it paints on top — was before it, so the
+          orb's canvas (which visually bleeds past its own box via glow/bloom)
+          rendered over the tooltip's top edge instead of under it. */}
+      {errorMessage && (
+        <div className={`card absolute top-full ${tooltipAlignClass} mt-3 w-56 px-3 py-2 text-center text-[11px] text-ink`}>
+          {errorMessage}
+        </div>
+      )}
     </motion.div>
   )
 }
