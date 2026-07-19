@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { AgentState } from '../components/ui/orb'
 import { Orb } from '../components/ui/orb'
 import { getSpeechRecognitionCtor, isSpeechRecognitionSupported } from '../lib/speech'
@@ -34,9 +35,20 @@ const ORB_COLORS: [string, string] = ['#c9bfff', '#7c5cfc']
 // Push-to-talk: hold spacebar to talk, release to send — not click-to-toggle.
 // Visual rendering is the real ElevenLabs Orb (Three.js); this component
 // owns the voice/state machine and the collision-aware fixed positioning.
+type ErrorState = { text: string; id: number }
+
 export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
   const [listening, setListening] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [errorState, setErrorState] = useState<ErrorState | null>(null)
+  // A plain string dependency means a *repeated* identical error (e.g. two
+  // no-speech misses in a row) or an error firing before the orb's position
+  // has settled wouldn't re-trigger the positioning effect below — bump a
+  // sequence id on every occurrence so it always remeasures.
+  const errorSeqRef = useRef(0)
+  function showError(text: string) {
+    errorSeqRef.current += 1
+    setErrorState({ text, id: errorSeqRef.current })
+  }
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const transcriptRef = useRef('')
   const onSubmitRef = useRef(onSubmit)
@@ -45,6 +57,8 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
   const pendingRef = useRef(pending)
   pendingRef.current = pending
   const orbElRef = useRef<HTMLDivElement>(null)
+  const tooltipElRef = useRef<HTMLDivElement>(null)
+  const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({ visibility: 'hidden' })
   const supported = isSpeechRecognitionSupported()
 
   const position = useOrbOffset()
@@ -63,7 +77,7 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
     recognition.lang = 'en-IN'
 
     recognition.onstart = () => {
-      setErrorMessage(null)
+      setErrorState(null)
       setListening(true)
       transcriptRef.current = ''
     }
@@ -78,22 +92,22 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
     recognition.onerror = (event) => {
       setListening(false)
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        setErrorMessage('Microphone access was denied. Allow mic permission to use voice input.')
+        showError('Microphone access was denied. Allow mic permission to use voice input.')
       } else if (event.error === 'no-speech') {
-        setErrorMessage("Didn't catch any speech — try again.")
+        showError("Didn't catch any speech — try again.")
       } else if (event.error === 'audio-capture') {
-        setErrorMessage('No microphone was found.')
+        showError('No microphone was found.')
       } else if (event.error === 'network') {
-        setErrorMessage('Voice input error: network')
+        showError('Voice input error: network')
         navigator.brave?.isBrave().then((isBrave) => {
           if (isBrave) {
-            setErrorMessage(
+            showError(
               'Brave blocks voice recognition by default. Enable "Use Google services for speech recognition" in brave://settings/privacy (or lower Shields for this site), then try again.',
             )
           }
         })
       } else {
-        setErrorMessage(`Voice input error: ${event.error}`)
+        showError(`Voice input error: ${event.error}`)
       }
     }
 
@@ -161,52 +175,79 @@ export function VoiceOrb({ onSubmit, pending, speaking }: VoiceOrbProps) {
     if (el) setOrbRect(el.getBoundingClientRect())
   }, [position])
 
+  // The orb's home docks near a screen edge/corner (useOrbOffset avoids open
+  // windows, and its natural slot sits at the right of a fixed-height hero
+  // card), and error messages vary a lot in length — a fixed-class guess
+  // (centered, always below) clipped off the side or ran into the dashboard
+  // cards below the hero. Portalled to <body> and positioned from the
+  // tooltip's own *measured* size against the orb's real screen rect,
+  // clamped to the viewport — the orb's motion.div applies a CSS transform
+  // to animate, which creates a new containing block for fixed-position
+  // descendants, so a plain `position: fixed` child of it wouldn't map to
+  // true viewport coordinates without portalling out first.
+  useLayoutEffect(() => {
+    if (!errorState) return
+    const orbEl = orbElRef.current
+    const tooltipEl = tooltipElRef.current
+    if (!orbEl || !tooltipEl) return
+
+    const orbRect = orbEl.getBoundingClientRect()
+    const tooltipRect = tooltipEl.getBoundingClientRect()
+    const margin = 12
+
+    let left = orbRect.left + orbRect.width / 2 - tooltipRect.width / 2
+    left = Math.max(margin, Math.min(left, window.innerWidth - tooltipRect.width - margin))
+
+    const spaceBelow = window.innerHeight - orbRect.bottom - margin
+    const top =
+      tooltipRect.height <= spaceBelow
+        ? orbRect.bottom + margin
+        : Math.max(margin, orbRect.top - tooltipRect.height - margin)
+
+    setTooltipStyle({ position: 'fixed', left, top, visibility: 'visible' })
+  }, [errorState])
+
   const state: OrbState = listening ? 'listening' : pending ? 'thinking' : speaking ? 'speaking' : 'idle'
 
-  // The orb's home docks near a screen edge/corner (useOrbOffset avoids open
-  // windows, and its natural slot sits at the right of the hero card), so a
-  // tooltip always centered under it can clip off the left/right edge —
-  // flip the anchor toward whichever side actually has room instead.
-  const TOOLTIP_WIDTH = 224 // w-56
-  const EDGE_MARGIN = 16
-  const orbCenterX = position.x + ORB_SIZE / 2
-  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280
-  const tooltipAlignClass =
-    orbCenterX - TOOLTIP_WIDTH / 2 < EDGE_MARGIN
-      ? 'left-0'
-      : orbCenterX + TOOLTIP_WIDTH / 2 > viewportWidth - EDGE_MARGIN
-        ? 'right-0'
-        : 'left-1/2 -translate-x-1/2'
-
   return (
-    <motion.div
-      ref={orbElRef}
-      className="fixed"
-      style={{
-        top: 0,
-        left: 0,
-        width: ORB_SIZE,
-        height: ORB_SIZE,
-        zIndex: 100000,
-      }}
-      animate={{ x: position.x, y: position.y }}
-      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-    >
-      <div
-        className="h-full w-full"
-        title={!supported ? "This browser doesn't support voice input" : 'Hold spacebar to talk'}
-        aria-label={`Voice assistant: ${state}`}
+    <>
+      <motion.div
+        ref={orbElRef}
+        className="fixed"
+        style={{
+          top: 0,
+          left: 0,
+          width: ORB_SIZE,
+          height: ORB_SIZE,
+          zIndex: 100000,
+        }}
+        animate={{ x: position.x, y: position.y }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       >
-        <Orb agentState={AGENT_STATE[state]} colors={ORB_COLORS} className="h-full w-full" />
-      </div>
-      {/* Declared after the orb so it paints on top — was before it, so the
-          orb's canvas (which visually bleeds past its own box via glow/bloom)
-          rendered over the tooltip's top edge instead of under it. */}
-      {errorMessage && (
-        <div className={`card absolute top-full ${tooltipAlignClass} mt-3 w-56 px-3 py-2 text-center text-[11px] text-ink`}>
-          {errorMessage}
+        <div
+          className="h-full w-full"
+          title={!supported ? "This browser doesn't support voice input" : 'Hold spacebar to talk'}
+          aria-label={`Voice assistant: ${state}`}
+        >
+          <Orb agentState={AGENT_STATE[state]} colors={ORB_COLORS} className="h-full w-full" />
         </div>
-      )}
-    </motion.div>
+      </motion.div>
+      {/* Portalled to <body>, not a child of the motion.div above — see the
+          useLayoutEffect comment for why a plain fixed-position child of an
+          animated (transformed) ancestor doesn't map to real viewport
+          coordinates. */}
+      {errorState &&
+        createPortal(
+          <div
+            ref={tooltipElRef}
+            style={{ ...tooltipStyle, zIndex: 100001 }}
+            className="card w-64 px-3 py-2 text-center text-[11px] text-ink"
+            role="alert"
+          >
+            {errorState.text}
+          </div>,
+          document.body,
+        )}
+    </>
   )
 }
