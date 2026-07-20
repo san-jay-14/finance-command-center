@@ -256,7 +256,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Missing Authorization header — sign in to use the voice assistant" }, 401);
   }
 
-  let body: { message?: string; open_window_titles?: string[] };
+  let body: { message?: string; open_window_titles?: string[]; dry_run?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -273,6 +273,52 @@ Deno.serve(async (req: Request) => {
     return json({ error: "ANTHROPIC_API_KEY is not configured as a project secret" }, 500);
   }
 
+  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+
+  // --- Eval dry-run path (eval harness, Step 2) ---
+  // Runs the SAME model call + tool schema the real path uses, but returns the
+  // chosen tool name and raw tool_use.input WITHOUT executing any side-effect
+  // (no user-auth, no pending_intents, no DB writes, no broadcasts). This is
+  // what lets the eval runner grade tool-selection deterministically without
+  // mutating the system it's measuring. Gated by a shared secret so the
+  // auth/write bypass can't be reached publicly; the runner sends it as the
+  // bearer token. The normal signed-in path below is entirely unchanged.
+  if (body.dry_run === true) {
+    // The eval secret rides in its own header, NOT Authorization: the platform
+    // gateway (verify_jwt=true) needs a real JWT in Authorization, which the
+    // runner supplies (the service-role key). This custom header is what gates
+    // the dry-run bypass against the public anon key, which would otherwise
+    // also satisfy the gateway.
+    const evalSecret = Deno.env.get("EVAL_SHARED_SECRET");
+    const providedSecret = req.headers.get("x-eval-secret");
+    if (!evalSecret || providedSecret !== evalSecret) {
+      return json({ error: "dry_run requires a valid x-eval-secret header" }, 401);
+    }
+
+    const dryResponse = await anthropic.messages.create({
+      model: "claude-opus-4-8",
+      max_tokens: 2048,
+      thinking: { type: "adaptive" },
+      system: buildSystemPrompt(today(), openWindowTitles),
+      tools: TOOLS,
+      // Single-shot: no pending_intents context — eval cases are self-contained.
+      messages: [{ role: "user", content: message }],
+    });
+
+    const dryToolUse = dryResponse.content.find(
+      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+    );
+    const dryText = dryResponse.content.find((b) => b.type === "text");
+
+    return json({
+      dry_run: true,
+      tool: dryToolUse ? dryToolUse.name : null,
+      input: dryToolUse ? dryToolUse.input : null,
+      text: dryText && "text" in dryText ? dryText.text : null,
+      stop_reason: dryResponse.stop_reason,
+    });
+  }
+
   const supabase = createAdminClient();
 
   const jwt = authHeader.replace(/^Bearer\s+/i, "");
@@ -281,8 +327,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Invalid or expired session" }, 401);
   }
   const ownerId = userData.user.id;
-
-  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
   // Check pending_intents first — a short reply like "5" should resolve
   // against the earlier question, not get parsed as a fresh command.
