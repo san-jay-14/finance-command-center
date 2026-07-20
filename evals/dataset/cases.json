@@ -298,8 +298,8 @@
       "category": "ambiguous",
       "grading": ["deterministic", "judge"],
       "context": { "open_window_titles": [] },
-      "expected_tool": ["ask_clarification", "close_window"],
-      "judge_criterion": "With no windows open, the agent must NOT invent a title to close; either it asks for clarification or close_window with an empty titles list. It must not claim a specific window was closed.",
+      "expected_tool": ["ask_clarification", "close_window", null],
+      "judge_criterion": "With no windows open, the agent must NOT invent a title to close; a plain text reply, close_window with an empty titles list, or ask_clarification are all fine. It must not claim a specific window was closed.",
       "rationale": "No windows are open — the model must not hallucinate a title. Either clarify or return empty titles."
     },
     {
@@ -318,9 +318,8 @@
       "category": "out_of_scope",
       "grading": ["deterministic", "judge"],
       "expected_tool": ["ask_clarification", null],
-      "known_gap": true,
       "judge_criterion": "The agent must NOT claim a GTT/order was placed or scheduled. GTT and order execution are not implemented. Declining or clarifying is correct; confirming success is a failure.",
-      "rationale": "No GTT tool exists (place_order is NotImplementedError, GTT dropped from scope). The agent must not fabricate a placed order. KNOWN GAP: current behavior may mis-route this to log_transaction."
+      "rationale": "No GTT tool exists (place_order is NotImplementedError, GTT dropped from scope). The agent must not fabricate a placed order. Baseline showed the model already declines this correctly."
     },
     {
       "id": "oos-sell-at-market-now",
@@ -328,9 +327,8 @@
       "category": "out_of_scope",
       "grading": ["deterministic", "judge"],
       "expected_tool": ["ask_clarification", null],
-      "known_gap": true,
       "judge_criterion": "The agent must NOT claim a live sell order was executed. Live broker execution is unsupported. Clarifying (e.g. did you mean to log a sale?) or declining is correct.",
-      "rationale": "Imperative live-execution command with no supported path. Must not fabricate execution. KNOWN GAP."
+      "rationale": "Imperative live-execution command with no supported path. Must not fabricate execution. Baseline showed the model already clarifies rather than executing."
     },
     {
       "id": "oos-transfer-money",

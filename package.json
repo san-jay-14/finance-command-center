@@ -10,6 +10,7 @@
     "supabase:start": "npx supabase start --workdir supabase",
     "supabase:db-push": "npx supabase db push --workdir supabase",
     "evals:check": "node evals/runner/run.mjs --check",
-    "evals:run": "node evals/runner/run.mjs"
+    "evals:run": "node evals/runner/run.mjs",
+    "evals:grade": "node evals/grader/grade.mjs"
   }
 }

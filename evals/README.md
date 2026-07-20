@@ -105,6 +105,41 @@ The dry-run path (`{ dry_run: true }` on `handle-message`, gated by
 path but returns only the chosen tool + raw `tool_use.input` and executes **no**
 side-effects — so a full run writes nothing to the production tables.
 
+## Grading the suite (Step 3)
+
+The grader ([`grader/grade.mjs`](grader/grade.mjs)) scores a stored run and
+writes `passed` / `failure_type` / `judge_verdict` back onto each
+`eval_results` row. Two layers:
+
+- **Deterministic** — right tool (from `expected_tool`) + right params
+  (`expected_params` exact, `fuzzy_params` with tolerance, `forbid_params`
+  absent). Failures classify as `wrong_tool`, `wrong_params`, `over_refusal`
+  (declined when it should have acted), or `under_refusal` (acted when it
+  should have declined/clarified).
+- **Claude-as-judge** — for cases tagged `"judge"` (refusals, hallucination
+  traps, date resolution): a forced-tool-call verdict from `claude-opus-4-8`
+  against the case's `judge_criterion`. Failures classify as `hallucination`
+  or `under_refusal`.
+
+`passed = deterministic_pass AND judge_pass`. The dataset (`cases.json`) is the
+grading source of truth; the stored rows supply what the agent did.
+
+### Extra env
+
+The grader needs `ANTHROPIC_API_KEY` in `evals/.env` (for the judge) on top of
+the runner's `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`. It calls the
+Anthropic API directly — it does NOT go through Supabase, so no function
+deploy or `EVAL_SHARED_SECRET` is involved.
+
+```bash
+npm run evals:grade                 # grades the latest run
+npm run evals:grade -- --run <uuid> # grades a specific run
+```
+
+The summary prints overall pass rate, a per-category breakdown, failures by
+type, and a known-gap reconciliation (which predicted-to-fail cases still
+fail).
+
 ## Categories
 
 - **happy_path** — unambiguous commands that map cleanly to one tool. Graded
