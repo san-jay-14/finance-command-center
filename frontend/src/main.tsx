@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { ConnectCallback } from './components/ConnectCallback.tsx'
+import { EvalsDashboard } from './evals/EvalsDashboard.tsx'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -17,16 +18,22 @@ const queryClient = new QueryClient({
   },
 })
 
-// No router — the app only ever has two real "pages" (the dashboard, and
-// this one-shot landing point for Angel One's Publisher Login redirect), so
-// a single pathname check is simpler than pulling in a routing library for
-// one conditional split.
-const isConnectCallback = window.location.pathname === '/connect/callback'
+// No router — the app only has a few real "pages" (the dashboard, the Angel
+// One Publisher Login redirect landing, and the read-only eval harness
+// dashboard), so a pathname switch is simpler than pulling in a routing
+// library. /evals is a standalone, auth-free view of the eval_* tables.
+const path = window.location.pathname
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      {isConnectCallback ? <ConnectCallback /> : <App />}
+      {path === '/connect/callback' ? (
+        <ConnectCallback />
+      ) : path === '/evals' ? (
+        <EvalsDashboard />
+      ) : (
+        <App />
+      )}
     </QueryClientProvider>
   </StrictMode>,
 )
