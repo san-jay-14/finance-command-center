@@ -220,29 +220,46 @@ export type DashboardResponse = {
   upcoming: DashboardUpcoming[]
 }
 
-// financial_profile/recurring_rules/transactions are tied to one legacy
-// public.users row that predates Supabase Auth — a connected visitor has
-// none of that data, and there's no per-visitor equivalent (a much larger
-// project than this step). Calling the old founder-hardcoded get-dashboard
-// here would leak the founder's own income/EMI/activity to any visitor who
-// connects their own broker account, so an honest empty shape is the only
-// safe option — Upcoming/Monthly Commitments show their natural empty
-// states for live visitors.
-function fetchDashboardLive(): Promise<DashboardResponse> {
-  return Promise.resolve({
-    profile: {
-      name: null,
-      age: null,
-      monthly_income: null,
-      monthly_expenses: null,
-      existing_emis: 0,
-      foir_ratio: null,
-      foir_recurring_commitments: 0,
-      foir_limit: 0.4,
-    },
-    activity: [],
-    upcoming: [],
-  })
+const EMPTY_DASHBOARD: DashboardResponse = {
+  profile: {
+    name: null,
+    age: null,
+    monthly_income: null,
+    monthly_expenses: null,
+    existing_emis: 0,
+    foir_ratio: null,
+    foir_recurring_commitments: 0,
+    foir_limit: 0.4,
+  },
+  activity: [],
+  upcoming: [],
+}
+
+// get-dashboard now accepts a bearer JWT and resolves scope to that
+// visitor's own owner_id (Step 9) instead of the legacy founder-only
+// user_id path — see supabase/functions/get-dashboard/index.ts. A connected
+// visitor's own income/EMI/activity/upcoming schedule is exactly what
+// should render here; nothing about the founder's legacy data is reachable
+// through this path (that stays gated behind the user_id body param, never
+// sent by this client).
+async function fetchDashboardLive(): Promise<DashboardResponse> {
+  const { data } = await supabase.auth.getSession()
+  const accessToken = data.session?.access_token
+  if (!accessToken) return EMPTY_DASHBOARD
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/get-dashboard`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY },
+    })
+    if (!res.ok) return EMPTY_DASHBOARD
+    return await res.json()
+  } catch {
+    // Network hiccup fetching activity/upcoming shouldn't crash the rest of
+    // the live dashboard (net worth/holdings are a separate query) — fall
+    // back to the same empty shape the cards already render gracefully.
+    return EMPTY_DASHBOARD
+  }
 }
 
 function fetchDashboardDemo(): Promise<DashboardResponse> {

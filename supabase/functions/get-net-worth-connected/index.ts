@@ -7,10 +7,19 @@
 // mixing a visitor's data into it would risk leaking the founder's own
 // financial data — see supabase/migrations/20260717000000_broker_sessions.sql).
 //
+// Non-stock asset classes (gold/mutual_fund/real_estate/other) aren't held
+// at the broker at all — they're logged manually via voice (handle-message's
+// log_transaction) into this same owner's assets/lots rows, so they're
+// merged in below via the same valuateAssets() pipeline get-net-worth.ts
+// (the legacy founder path) uses. Without this merge, a connected visitor's
+// voice-logged gold/MF/real-estate purchase would toast success (the write
+// really happened, owner-scoped) but never appear anywhere in their own
+// live view — the app would look like it silently dropped the transaction.
+//
 // Known, deliberate gap: history is always empty (no per-visitor historical
-// net worth snapshots are tracked) and by_asset_class only ever contains
-// "stock" (Angel One's holdings API only returns equity positions).
+// net worth snapshots are tracked).
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { valuateAssets } from "../_shared/holdings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -114,8 +123,9 @@ Deno.serve(async (req: Request) => {
   let totalValue = 0;
   let dayChangeValue = 0;
   let hasDayChange = false;
+  const byAssetClass: Record<string, number> = {};
 
-  const holdings = rawHoldings.map((raw) => {
+  const stockHoldings = rawHoldings.map((raw) => {
     const quantity = Number(raw.quantity ?? 0);
     const currentPrice = raw.ltp != null ? Number(raw.ltp) : null;
     const currentValue = currentPrice !== null ? quantity * currentPrice : null;
@@ -125,7 +135,10 @@ Deno.serve(async (req: Request) => {
       currentPrice !== null && prevClose !== null && prevClose > 0 ? (currentPrice - prevClose) * quantity : null;
     const dayChangePct = currentPrice !== null && prevClose !== null && prevClose > 0 ? ((currentPrice - prevClose) / prevClose) * 100 : null;
 
-    if (currentValue !== null) totalValue += currentValue;
+    if (currentValue !== null) {
+      totalValue += currentValue;
+      byAssetClass.stock = (byAssetClass.stock ?? 0) + currentValue;
+    }
     if (dayChangeVal !== null) {
       dayChangeValue += dayChangeVal;
       hasDayChange = true;
@@ -149,8 +162,38 @@ Deno.serve(async (req: Request) => {
     };
   });
 
-  const byAssetClass: Record<string, number> = {};
-  if (holdings.length > 0) byAssetClass.stock = totalValue;
+  // Manually-tracked assets (never held at the broker) for this same owner —
+  // reuses the exact valuation pipeline get-net-worth.ts (legacy founder
+  // path) uses, just owner-scoped instead of the legacy owner_id IS NULL.
+  const manualRows = await valuateAssets(supabase, ["mutual_fund", "gold", "real_estate", "other"], userData.user.id);
+  const manualHoldings = manualRows.map(({ holding, valuation }) => {
+    if (valuation.current_value !== null) {
+      totalValue += valuation.current_value;
+      byAssetClass[holding.asset_class] = (byAssetClass[holding.asset_class] ?? 0) + valuation.current_value;
+    }
+    if (valuation.day_change_value != null) {
+      dayChangeValue += valuation.day_change_value;
+      hasDayChange = true;
+    }
+    return {
+      asset_id: holding.asset_id,
+      symbol: holding.symbol,
+      name: holding.name,
+      asset_class: holding.asset_class,
+      quantity: holding.quantity,
+      current_price: valuation.current_price,
+      current_value: valuation.current_value,
+      invested_value: holding.invested_value,
+      unrealized_pnl: valuation.current_value !== null ? valuation.current_value - holding.invested_value : null,
+      if_sold_today_value: valuation.if_sold_today_value,
+      adjustment_note: valuation.adjustment_note,
+      price_as_of: valuation.price_as_of,
+      day_change_value: valuation.day_change_value ?? null,
+      day_change_pct: valuation.day_change_pct ?? null,
+    };
+  });
+
+  const holdings = [...stockHoldings, ...manualHoldings];
   const prevTotal = totalValue - dayChangeValue;
 
   return json({

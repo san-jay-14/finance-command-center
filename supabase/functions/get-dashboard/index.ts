@@ -2,6 +2,12 @@
 // FOIR via the same shared helper check-affordability uses), the activity
 // log, and the upcoming column. Holdings/net worth come from get-net-worth —
 // this function deliberately doesn't duplicate that.
+//
+// Two callers, two scopes: a `user_id` body param (legacy, pre-Supabase-Auth
+// founder path) vs. a bearer JWT (a signed-in, broker-connected visitor —
+// same per-owner data handle-message/get-net-worth-connected use). Kept as
+// one function with a resolved `scope` rather than two, since the query
+// shape is identical either way — only the filter column differs.
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
 import { computeFoir, FOIR_LIMIT } from "../_shared/foir.ts";
@@ -23,30 +29,48 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Use POST" }, 405);
   }
 
-  let body: { user_id?: string };
+  let body: { user_id?: string } = {};
   try {
     body = await req.json();
   } catch {
-    return json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const { user_id } = body;
-  if (!user_id) {
-    return json({ error: "user_id is required" }, 400);
+    // Bearer-JWT callers (a connected visitor) send no body at all —
+    // Authorization is the only scope they supply.
   }
 
   const supabase = createAdminClient();
 
+  // scope.column is whichever FK actually carries data for this caller:
+  // legacy `user_id` (public.users, pre-Auth) if given explicitly, else the
+  // Step 9 `owner_id` (auth.users) derived from a verified JWT. Never both,
+  // never guessed — a bearer token always wins if user_id is absent, and an
+  // absent/invalid token with no user_id is a hard 400/401, not a silent
+  // empty-scope query that could return every row without owner filtering.
+  let scope: { column: "user_id" | "owner_id"; value: string };
+  if (body.user_id) {
+    scope = { column: "user_id", value: body.user_id };
+  } else {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return json({ error: "user_id or an Authorization header is required" }, 400);
+    }
+    const jwt = authHeader.replace(/^Bearer\s+/i, "");
+    const { data: userData, error: userError } = await supabase.auth.getUser(jwt);
+    if (userError || !userData.user) {
+      return json({ error: "Invalid or expired session" }, 401);
+    }
+    scope = { column: "owner_id", value: userData.user.id };
+  }
+
   const { data: profile, error: profileError } = await supabase
     .from("financial_profile")
     .select("name, age, monthly_income, monthly_expenses, existing_emis, emergency_fund_months")
-    .eq("user_id", user_id)
+    .eq(scope.column, scope.value)
     .maybeSingle();
   if (profileError) return json({ error: profileError.message }, 500);
 
   let foir;
   try {
-    foir = await computeFoir(supabase, user_id, profile);
+    foir = await computeFoir(supabase, scope.value, profile);
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
@@ -54,7 +78,7 @@ Deno.serve(async (req: Request) => {
   const { data: transactions, error: txnError } = await supabase
     .from("transactions")
     .select("id, action, quantity, amount, source, created_at, assets(name, asset_class, symbol)")
-    .eq("user_id", user_id)
+    .eq(scope.column, scope.value)
     .order("created_at", { ascending: false })
     .limit(ACTIVITY_LIMIT);
   if (txnError) return json({ error: txnError.message }, 500);
@@ -77,7 +101,7 @@ Deno.serve(async (req: Request) => {
   const { data: rules, error: rulesError } = await supabase
     .from("recurring_rules")
     .select("id, asset_class, amount, frequency, next_run_date")
-    .eq("user_id", user_id)
+    .eq(scope.column, scope.value)
     .eq("active", true);
   if (rulesError) return json({ error: rulesError.message }, 500);
 

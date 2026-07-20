@@ -328,6 +328,22 @@ Deno.serve(async (req: Request) => {
   }
   const ownerId = userData.user.id;
 
+  // Derived independently of anything the client claims — the same source
+  // of truth get-broker-session/useModeSync use to decide demo vs live.
+  // Voice writes previously ignored this entirely: log_transaction et al.
+  // wrote to the real per-owner tables for ANY signed-in caller, even one
+  // the frontend was showing as "Demo Mode" with fully static data. That's
+  // how a demo-mode voice log could toast success (the write really
+  // happened) while nothing on screen changed (the demo reads never look at
+  // real data) — fixed by gating the mutating tools below on this check,
+  // not by touching the read side.
+  const { data: brokerRow } = await supabase
+    .from("broker_sessions")
+    .select("expires_at")
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  const isConnected = Boolean(brokerRow && new Date(brokerRow.expires_at).getTime() > Date.now());
+
   // Check pending_intents first — a short reply like "5" should resolve
   // against the earlier question, not get parsed as a fresh command.
   const { data: pendingRows, error: pendingError } = await supabase
@@ -378,6 +394,27 @@ Deno.serve(async (req: Request) => {
   }
 
   const input = toolUse.input as Record<string, unknown>;
+
+  // Demo-mode write guard: these four tools mutate the caller's real,
+  // owner-scoped financial data (transactions/assets/lots/recurring_rules/
+  // financial_profile). A visitor who hasn't connected a broker is shown
+  // static demo data everywhere else in the app — writing for real here
+  // would silently diverge from what they're looking at. Read-only tools
+  // (render_ui, check_affordability, run_backtest, show_price_chart,
+  // close_window(s), show_activity_history, ask_clarification) are
+  // unaffected.
+  const MUTATING_TOOLS = new Set([
+    "log_transaction",
+    "update_asset_value",
+    "create_recurring_rule",
+    "update_financial_profile",
+  ]);
+  if (!isConnected && MUTATING_TOOLS.has(toolUse.name)) {
+    return json({
+      tool: toolUse.name,
+      message: "You're viewing demo data right now, so I can't log that for real. Connect your Angel One account to track your own transactions.",
+    });
+  }
 
   switch (toolUse.name) {
     case "log_transaction": {
