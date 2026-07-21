@@ -185,6 +185,10 @@ const DEMO_ACTIVITY: DashboardActivity[] = [
 ]
 
 const DEMO_UPCOMING: DashboardUpcoming[] = [
+  // EMI lines mirror what get-dashboard now synthesizes from existing_emis
+  // (15000/mo here) so demo and live show the same shape of schedule.
+  { type: 'emi', rule_id: 'demo-emi-0', asset_class: 'emi', amount: 15000, frequency: 'monthly', date: isoDate(monthsFromNow(1)) },
+  { type: 'emi', rule_id: 'demo-emi-1', asset_class: 'emi', amount: 15000, frequency: 'monthly', date: isoDate(monthsFromNow(2)) },
   { type: 'recurring', rule_id: 'demo-rule-gold', asset_class: 'gold', amount: 5000, frequency: 'monthly', date: isoDate(monthsFromNow(1)) },
   { type: 'recurring', rule_id: 'demo-rule-mf', asset_class: 'mutual_fund', amount: 10000, frequency: 'monthly', date: isoDate(monthsFromNow(1)) },
   { type: 'recurring', rule_id: 'demo-rule-gold', asset_class: 'gold', amount: 5000, frequency: 'monthly', date: isoDate(monthsFromNow(2)) },

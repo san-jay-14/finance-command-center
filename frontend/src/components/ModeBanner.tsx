@@ -55,15 +55,23 @@ export function ModeBanner() {
 
   async function handleDisconnectClick() {
     setDisconnecting(true)
-    const result = await disconnectBrokerSession()
-    setDisconnecting(false)
-    if (!result.ok) {
-      showHint(result.error)
-      return
+    try {
+      const result = await disconnectBrokerSession()
+      if (!result.ok) {
+        showHint(result.error)
+        return
+      }
+      // Instant feedback rather than waiting for useModeSync's next check —
+      // that check will independently confirm the same thing once it re-runs.
+      setMode('demo')
+    } catch (err) {
+      // A thrown fetch (e.g. the CORS-preflight failure that used to break
+      // this) must still reset the button rather than leaving it stuck on
+      // "Disconnecting…" forever — that stuck state was the visible symptom.
+      showHint(err instanceof Error ? err.message : 'Disconnect failed')
+    } finally {
+      setDisconnecting(false)
     }
-    // Instant feedback rather than waiting for useModeSync's next check —
-    // that check will independently confirm the same thing once it re-runs.
-    setMode('demo')
   }
 
   return (

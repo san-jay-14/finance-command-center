@@ -146,6 +146,7 @@ export type HandleMessageResponse =
   | { tool: 'close_window'; message: string; titles: string[] }
   | { tool: 'close_all_windows'; message: string }
   | { tool: 'show_activity_history'; message: string; activity: Record<string, unknown>[] }
+  | { tool: 'get_financial_summary'; message: string }
   | { tool: 'ask_clarification'; message: string; pending_intent: unknown }
   | { tool: null; message: string }
 
@@ -197,7 +198,9 @@ export type DashboardActivity = {
 }
 
 export type DashboardUpcoming = {
-  type: 'recurring'
+  // 'recurring' = a SIP/contribution rule occurrence; 'emi' = a standing
+  // monthly loan obligation synthesized from financial_profile.existing_emis.
+  type: 'recurring' | 'emi'
   rule_id: string
   asset_class: string
   amount: number

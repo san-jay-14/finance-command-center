@@ -24,6 +24,7 @@ const CLASS_DOTS: Record<string, string> = {
   gold: 'gold-dot',
   real_estate: 'bg-ink-faint',
   other: 'bg-ink-faint',
+  emi: 'bg-loss',
 }
 
 function daysUntil(iso: string): number {
@@ -39,15 +40,15 @@ export function UpcomingCard({ upcoming }: { upcoming: DashboardUpcoming[] }) {
   const hiddenCount = upcoming.length - visible.length
 
   return (
-    <section className="card flex min-h-0 flex-col p-5">
+    <section className="card flex h-full min-h-0 flex-col p-5">
       <h2 className="mb-3 flex shrink-0 items-center gap-1.5 text-[11px] font-semibold tracking-[0.18em] text-ink-soft uppercase">
         <CalendarIcon className="h-3.5 w-3.5" />
         Upcoming
       </h2>
       {visible.length === 0 ? (
-        <div className="flex h-12 items-center text-sm text-ink-faint">Nothing scheduled</div>
+        <div className="flex flex-1 items-center text-sm text-ink-faint">Nothing scheduled</div>
       ) : (
-        <div className="flex flex-col divide-y divide-border-soft">
+        <div className="no-scrollbar flex min-h-0 flex-1 flex-col divide-y divide-border-soft overflow-y-auto">
           {visible.map((entry, i) => {
             const days = daysUntil(entry.date)
             return (
@@ -59,13 +60,15 @@ export function UpcomingCard({ upcoming }: { upcoming: DashboardUpcoming[] }) {
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${CLASS_DOTS[entry.asset_class] ?? 'bg-ink-faint'}`} aria-hidden />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-ink">
-                      {CLASS_LABELS[entry.asset_class] ?? entry.asset_class} SIP{' '}
+                      {entry.type === 'emi' ? 'EMI payment' : `${CLASS_LABELS[entry.asset_class] ?? entry.asset_class} SIP`}{' '}
                       <span className="font-numeric text-ink-soft">
                         · {money(entry.amount)}
                         <span className="text-ink-faint">{FREQUENCY_LABELS[entry.frequency] ?? ''}</span>
                       </span>
                     </div>
-                    <div className="text-[11px] text-ink-faint">recurring contribution</div>
+                    <div className="text-[11px] text-ink-faint">
+                      {entry.type === 'emi' ? 'loan repayment' : 'recurring contribution'}
+                    </div>
                   </div>
                 </div>
                 <div className="shrink-0 text-right">

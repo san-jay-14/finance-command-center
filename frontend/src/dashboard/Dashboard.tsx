@@ -114,7 +114,10 @@ export function Dashboard({ livePrices }: DashboardProps) {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden px-6 pt-3 pb-6 lg:grid-cols-[3fr_2fr]">
         <div className="flex min-h-0 flex-col gap-3">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* flex-1 + min-h-0 makes this row's height come from the layout,
+              not from how many rows Upcoming happens to have — so the cards
+              stay the same size whether they're full or empty. */}
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
             <UpcomingCard upcoming={dash?.upcoming ?? []} />
             <NetWorthTrendCard history={netWorth?.history ?? []} />
           </div>

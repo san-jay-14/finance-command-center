@@ -17,7 +17,7 @@ export function MonthlyCommitmentsCard({ existingEmis, recurringCommitments, foi
   const isOver = foirPct !== null && foirPct > limitPct
 
   return (
-    <section className="card flex min-h-0 flex-1 flex-col p-5">
+    <section className="card flex shrink-0 flex-col p-5">
       <h2 className="mb-3 flex shrink-0 items-center gap-1.5 text-[11px] font-semibold tracking-[0.18em] text-ink-soft uppercase">
         <GaugeIcon className="h-3.5 w-3.5" />
         Monthly Commitments
@@ -41,12 +41,26 @@ export function MonthlyCommitmentsCard({ existingEmis, recurringCommitments, foi
       </div>
 
       <div className="relative mt-4 h-2 w-full shrink-0 overflow-hidden rounded-full bg-white/5">
-        <div
-          className={`foir-bar h-full rounded-full ${isOver ? 'foir-bar-over' : ''}`}
-          style={{ width: `${Math.min(100, foirPct ?? 0)}%` }}
-        />
-        <div className="absolute top-0 h-full w-px bg-white/25" style={{ left: `${Math.min(100, limitPct)}%` }} />
+        {foirPct !== null && (
+          <div
+            className={`foir-bar h-full rounded-full ${isOver ? 'foir-bar-over' : ''}`}
+            style={{ width: `${Math.min(100, foirPct)}%` }}
+          />
+        )}
+        {/* Limit marker only reads as meaningful once there's a bar to compare
+            it against — hide it in the no-income state so the empty rail
+            doesn't look like a broken/stuck bar. */}
+        {foirPct !== null && (
+          <div className="absolute top-0 h-full w-px bg-white/25" style={{ left: `${Math.min(100, limitPct)}%` }} />
+        )}
       </div>
+      {/* FOIR is commitments ÷ income, so it can't be computed without an
+          income on file — say so explicitly instead of leaving a dead bar. */}
+      {foirPct === null && (
+        <div className="mt-2 shrink-0 text-[11px] text-ink-faint">
+          Add your monthly income (“my income is 1.2 lakh”) to see your FOIR.
+        </div>
+      )}
     </section>
   )
 }

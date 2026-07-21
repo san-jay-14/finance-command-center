@@ -12,6 +12,11 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  // DELETE isn't a CORS-safelisted method — without naming it here the browser
+  // preflight for the disconnect call fails, the fetch throws, and the UI hangs
+  // on "Disconnecting…" while the row is never deleted. POST (connect) is
+  // safelisted so it worked without this line; DELETE (disconnect) did not.
+  "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS",
 };
 
 function json(body: unknown, status = 200): Response {

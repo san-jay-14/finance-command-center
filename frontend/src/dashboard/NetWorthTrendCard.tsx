@@ -14,7 +14,7 @@ export function NetWorthTrendCard({ history }: { history: NetWorthHistoryPoint[]
   const changePct = first && last && first > 0 ? ((last - first) / first) * 100 : null
 
   return (
-    <section className="card flex min-h-0 flex-col p-5">
+    <section className="card flex h-full min-h-0 flex-col p-5">
       <div className="mb-2 flex shrink-0 items-center justify-between">
         <h2 className="flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.18em] text-ink-soft uppercase">
           <TrendUpIcon className="h-3.5 w-3.5" />

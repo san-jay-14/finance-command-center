@@ -14,6 +14,7 @@ import {
 } from "../_shared/assets.ts";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { advanceDate, today } from "../_shared/dates.ts";
+import { computeFoir } from "../_shared/foir.ts";
 import { broadcastRealtime } from "../_shared/realtimeBroadcast.ts";
 import { createAdminClient } from "../_shared/supabaseAdmin.ts";
 
@@ -44,6 +45,7 @@ function buildSystemPrompt(todayStr: string, openWindowTitles: string[]): string
 - close_window: the user wants to close one or more specific open windows (e.g. "close the asset distribution", "close that chart"). Match their words against the exact open window titles listed above and pass back only the exact titles that match — if several open windows plausibly match what they said, include all of them. Never invent a title that isn't in the open list.
 - close_all_windows: the user wants to close everything currently open (e.g. "close all", "close everything").
 - show_activity_history: the user wants to see their full transaction/activity history (e.g. "show my activity history", "what have I bought recently").
+- get_financial_summary: the user is ASKING about their existing financial profile — total EMIs, monthly income, monthly expenses, recurring contributions, or FOIR ratio (e.g. "what's my total EMI", "how much am I paying in EMIs each month", "what's my FOIR", "what's my income on file"). This only reads and reports the stored numbers; it changes nothing.
 - ask_clarification: a required detail is genuinely missing or ambiguous (e.g. "sell some TSLA" doesn't say how many shares), OR the user issued an imperative order to buy/sell now ("buy 10 shares of TCS") — since this app can't place live broker orders, ask whether they mean to log a purchase they've already made rather than executing or guessing. Ask one short, specific question.
 
 Do not discuss broker order execution or taxes — the tax engine isn't implemented yet. Just route the intent.`;
@@ -219,6 +221,15 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "show_activity_history",
     description: "Show the user's full transaction/activity history in a window, e.g. 'show my activity history'.",
+    input_schema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "get_financial_summary",
+    description:
+      "Read and report the user's stored financial profile: total existing EMIs, monthly income, monthly expenses, recurring contributions, and FOIR ratio. Use when the user asks about any of these (e.g. 'what's my total EMI', 'what's my FOIR'). Read-only.",
     input_schema: {
       type: "object",
       properties: {},
@@ -758,6 +769,35 @@ Deno.serve(async (req: Request) => {
       });
 
       return json({ tool: "show_activity_history", message: "Here's your activity history.", activity });
+    }
+    case "get_financial_summary": {
+      const { data: profile, error: profileError } = await supabase
+        .from("financial_profile")
+        .select("monthly_income, monthly_expenses, existing_emis")
+        .eq("owner_id", ownerId)
+        .maybeSingle();
+      if (profileError) return json({ error: profileError.message }, 500);
+
+      // Reuse the single FOIR source of truth so this narration and the
+      // dashboard's Monthly Commitments card never disagree.
+      const foir = await computeFoir(supabase, ownerId, profile);
+      const emis = Number(profile?.existing_emis ?? 0);
+      const income = profile?.monthly_income != null ? Number(profile.monthly_income) : null;
+      const expenses = profile?.monthly_expenses != null ? Number(profile.monthly_expenses) : null;
+      const recurring = Math.round(foir.existing_recurring_commitments);
+      const inr = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+
+      const parts: string[] = [`Your total existing EMIs are ${inr(emis)} per month`];
+      if (recurring > 0) parts.push(`plus ${inr(recurring)} in recurring contributions`);
+      if (income !== null) {
+        parts.push(`against a monthly income of ${inr(income)}`);
+        if (foir.foir_ratio !== null) parts.push(`— an FOIR of ${(foir.foir_ratio * 100).toFixed(0)}%`);
+      } else {
+        parts.push("— set your monthly income to see your FOIR");
+      }
+      const message = parts.join(" ") + (expenses !== null ? `. Your monthly expenses are ${inr(expenses)}.` : ".");
+
+      return json({ tool: "get_financial_summary", message });
     }
     case "ask_clarification": {
       const { data, error } = await supabase

@@ -21,6 +21,20 @@ const ACTIVITY_LIMIT = 25;
 const OCCURRENCES_PER_RULE = 4;
 const UPCOMING_LIMIT = 12;
 
+// The i-th upcoming occurrence of a monthly obligation that falls on `day`
+// (e.g. day 5). i=0 is the next such date that hasn't passed yet; each
+// subsequent i advances one month. Returns an ISO yyyy-mm-dd string.
+function nthUpcomingMonthlyDate(day: number, i: number): string {
+  const now = new Date();
+  // Start from this month's `day`; if it's already past, roll to next month.
+  const year = now.getUTCFullYear();
+  let month = now.getUTCMonth();
+  if (now.getUTCDate() > day) month += 1;
+  month += i;
+  // Date.UTC normalizes month overflow (e.g. month 13 → next year, Feb).
+  return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -120,6 +134,27 @@ Deno.serve(async (req: Request) => {
       date = advanceDate(date, rule.frequency);
     }
   }
+
+  // Existing EMIs are a standing monthly obligation stored as a single number
+  // on financial_profile (not a recurring_rules row), so they never appeared
+  // in this schedule even though they're the most concrete monthly commitment
+  // a user has. Surface them here as their own monthly line. There's no stored
+  // due-day, so occurrences land on the 5th — the same convention SIP demo
+  // dates use — starting with the next 5th that hasn't passed.
+  const existingEmis = Number(profile?.existing_emis ?? 0);
+  if (existingEmis > 0) {
+    for (let i = 0; i < OCCURRENCES_PER_RULE; i++) {
+      upcoming.push({
+        type: "emi",
+        rule_id: `emi-${i}`,
+        asset_class: "emi",
+        amount: existingEmis,
+        frequency: "monthly",
+        date: nthUpcomingMonthlyDate(5, i),
+      });
+    }
+  }
+
   upcoming.sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
   return json({

@@ -141,6 +141,21 @@ async def get_holdings():
     return [asdict(h) for h in holdings]
 
 
+def _to_datetime_arg(to_date: str) -> str:
+    """Angel One's getCandleData rejects (or returns empty for) a `todate`
+    in the future. When the requested range ends today and it's currently
+    before market close — e.g. running this just after midnight IST — asking
+    for `{to_date} 15:30` is a future timestamp, which is exactly the
+    "historical won't load at midnight" symptom. Clamp today's end time to
+    the current IST time so the request stays in the past; any earlier
+    to_date keeps the normal 15:30 close.
+    """
+    now_ist = datetime.now(IST)
+    if to_date == now_ist.strftime("%Y-%m-%d"):
+        return now_ist.strftime("%Y-%m-%d %H:%M")
+    return f"{to_date} 15:30"
+
+
 @app.get("/historical", dependencies=[Depends(_require_relay_auth)])
 async def get_historical(symbol: str, interval: str, from_date: str, to_date: str):
     try:
@@ -150,7 +165,7 @@ async def get_historical(symbol: str, interval: str, from_date: str, to_date: st
 
         session = await _get_session()
         candles = await adapter.get_historical_data(
-            session, symbol, interval, f"{from_date} 09:15", f"{to_date} 15:30"
+            session, symbol, interval, f"{from_date} 09:15", _to_datetime_arg(to_date)
         )
         await asyncio.to_thread(upsert_candles, symbol, interval, candles)
         # Re-read from the cache table rather than the raw adapter response so
